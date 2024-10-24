@@ -56,24 +56,71 @@ def load_checkpoint(model,
     print("Checkpoint loaded.")
 
 
-class DenoisingTransformer(nn.Module):
+class EnhancedTimeWavelengthTransformer(nn.Module):
 
     def __init__(self, d_model=32, nhead=8, num_layers=4, dropout=0.1):
-        super(DenoisingTransformer, self).__init__()
-        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model,
-                                                   nhead=nhead,
-                                                   dropout=dropout)
-        self.encoder = nn.TransformerEncoder(encoder_layer,
-                                             num_layers=num_layers)
-        self.decoder = nn.Linear(d_model, d_model)  # 输出层
+        super(EnhancedTimeWavelengthTransformer, self).__init__()
+
+        # 卷积层用于在空间维度上提取特征
+        self.conv1d = nn.Conv1d(in_channels=32,
+                                out_channels=32,
+                                kernel_size=3,
+                                padding=1)
+
+        # 时间维度上的 Transformer
+        self.time_transformer = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model=d_model,
+                                       nhead=nhead,
+                                       dropout=dropout),
+            num_layers=num_layers)
+
+        # 波长维度上的 Transformer
+        self.wavelength_transformer = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model=d_model,
+                                       nhead=nhead,
+                                       dropout=dropout),
+            num_layers=num_layers)
+
+        # 输出解码层
+        self.decoder = nn.Linear(d_model, d_model)
 
     def forward(self, x):
-        x = self.encoder(x)
+        # 输入形状: (batch_size, num_wavelengths, seq_len, space_dim)
+        batch_size, num_wavelengths, seq_len, space_dim = x.size()
+
+        # 1D 卷积在空间维度上提取特征
+        x = x.permute(0, 1, 3, 2).reshape(
+            -1, space_dim,
+            seq_len)  # (batch_size * num_wavelengths, space_dim, seq_len)
+        x = self.conv1d(x).view(
+            batch_size, num_wavelengths, -1,
+            seq_len)  # (batch_size, num_wavelengths, new_dim, seq_len)
+
+        # 对每个波长的时间序列应用时间 Transformer
+        x = x.permute(0, 1, 3, 2).reshape(
+            -1, seq_len,
+            space_dim)  # (batch_size * num_wavelengths, seq_len, new_dim)
+        x = self.time_transformer(
+            x)  # (batch_size * num_wavelengths, seq_len, new_dim)
+
+        # 恢复形状用于波长维度的 Transformer
+        x = x.view(batch_size, num_wavelengths, seq_len, -1).permute(
+            0, 2, 1, 3)  # (batch_size, seq_len, num_wavelengths, new_dim)
+
+        # 在波长维度上应用 Transformer
+        x = x.reshape(batch_size * seq_len, num_wavelengths,
+                      -1)  # (batch_size * seq_len, num_wavelengths, new_dim)
+        x = self.wavelength_transformer(
+            x)  # (batch_size * seq_len, num_wavelengths, new_dim)
+
+        # 恢复输出形状并解码
+        x = x.view(batch_size, seq_len, num_wavelengths, -1).permute(
+            0, 2, 1, 3)  # (batch_size, num_wavelengths, seq_len, new_dim)
         return self.decoder(x)
 
 
 # 初始化模型
-model = DenoisingTransformer().cuda()
+model = EnhancedTimeWavelengthTransformer().cuda()
 
 # 损失函数和优化器
 criterion = nn.MSELoss()
