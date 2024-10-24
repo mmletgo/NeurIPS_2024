@@ -1,19 +1,19 @@
 import numpy as np
-import pandas as pd
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 data_folder = 'input/binned-dataset-v3/'  # path to the folder containing the data
-data_train = np.load(f'{data_folder}/data_train.npy')
-data_train_FGS = np.load(f'{data_folder}/data_train_FGS.npy')
+signal_AIRS_diff_transposed_binned = np.load(f'{data_folder}/data_train.npy')
+signal_FGS_diff_transposed_binned = np.load(
+    f'{data_folder}/data_train_FGS.npy')
 
-signal_AIRS_diff_transposed_binned, signal_FGS_diff_transposed_binned = data_train, data_train_FGS
 FGS_column = signal_FGS_diff_transposed_binned.sum(axis=2)
+del signal_FGS_diff_transposed_binned
 dataset = np.concatenate(
     [signal_AIRS_diff_transposed_binned, FGS_column[:, :, np.newaxis, :]],
     axis=2)
-del data_train, data_train_FGS, signal_AIRS_diff_transposed_binned, signal_FGS_diff_transposed_binned, FGS_column
+del signal_AIRS_diff_transposed_binned, FGS_column
 
 data_train_tensor = torch.tensor(dataset)
 # 计算数据的最小值和最大值（用于归一化）
@@ -22,13 +22,13 @@ data_max = data_train_tensor.max(dim=1, keepdim=True)[0]  # (673, 1, 283, 32)
 
 # 归一化到 [0, 1] 范围
 data_train_normalized = (data_train_tensor - data_min) / (data_max - data_min)
-
+del data_train_tensor, dataset
 # 假设你的数据是 data_train，形状为 (673, 187, 283, 32)
 # 重塑数据：每个波长的时间序列作为输入 (673 * 283, 187, 32)
 data_train_reshaped = data_train_normalized.permute(0, 2, 1,
                                                     3).reshape(-1, 187,
                                                                32).float()
-del data_train_tensor, data_train_normalized, dataset
+del data_train_normalized
 
 # 数据集与数据加载器
 batch_size = 256
@@ -130,12 +130,13 @@ with torch.no_grad():
 
 # 合并所有批次结果
 denoised_data = torch.cat(results, dim=0)
+del results
 
 # 恢复原始数据的形状
 denoised_data = denoised_data.reshape(673, 283, 187, 32).permute(0, 2, 1, 3)
 data_restored = denoised_data * (data_max - data_min) + data_min
-
+del denoised_data
 # 打印结果示例
 print(data_restored.shape)  # 应为 (673, 187, 283, 32)
-denoised_data_np = denoised_data.cpu().numpy()
-np.save("denoised_data.npy", denoised_data_np)
+data_restored_np = data_restored.cpu().numpy()
+np.save("denoised_data.npy", data_restored_np)
