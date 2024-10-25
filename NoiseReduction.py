@@ -2,7 +2,6 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
-from torch.cuda.amp import autocast, GradScaler  # 导入 AMP 所需模块
 
 # 数据加载
 data_folder = 'input/binned-dataset-v3/'
@@ -27,16 +26,17 @@ del data_train_tensor, dataset
 
 # 确保数据为 4D 形状 (673, 283, 187, 32)
 data_train_reshaped = data_train_normalized.permute(0, 2, 1, 3)
+del data_train_normalized  # 释放内存
 print(f"数据形状: {data_train_reshaped.shape}")  # (673, 283, 187, 32)
 
 # 数据加载器
-batch_size = 256
+batch_size = 64
 dataset2 = TensorDataset(data_train_reshaped, data_train_reshaped)
 data_loader = DataLoader(dataset2, batch_size=batch_size, shuffle=True)
 print("数据加载器准备完毕.")
 
 
-# 保存和加载模型的函数
+# 模型保存与加载函数
 def save_checkpoint(model,
                     optimizer,
                     path='noise_reduction_model_checkpoint.pth'):
@@ -57,38 +57,31 @@ def load_checkpoint(model,
     print("Checkpoint loaded.")
 
 
-# 定义增强的 Transformer 模型
+# 定义增强版 Transformer 模型
 class EnhancedTimeWavelengthTransformer(nn.Module):
 
     def __init__(self, d_model=32, nhead=8, num_layers=4, dropout=0.1):
         super(EnhancedTimeWavelengthTransformer, self).__init__()
-        # 空间卷积层
         self.conv1d = nn.Conv1d(in_channels=32,
                                 out_channels=32,
                                 kernel_size=3,
                                 padding=1)
-
-        # 时间序列 Transformer
         self.time_transformer = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model=d_model,
                                        nhead=nhead,
                                        dropout=dropout),
             num_layers=num_layers)
-
-        # 波长 Transformer
         self.wavelength_transformer = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model=d_model,
                                        nhead=nhead,
                                        dropout=dropout),
             num_layers=num_layers)
-
-        # 解码层
         self.decoder = nn.Linear(d_model, d_model)
 
     def forward(self, x):
         batch_size, num_wavelengths, seq_len, space_dim = x.size()
 
-        # 空间维度卷积
+        # 空间卷积
         x = x.permute(0, 1, 3, 2).reshape(-1, space_dim, seq_len)
         x = self.conv1d(x).view(batch_size, num_wavelengths, -1, seq_len)
 
@@ -96,12 +89,10 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
         x = x.permute(0, 1, 3, 2).reshape(-1, seq_len, space_dim)
         x = self.time_transformer(x)
 
-        # 恢复形状用于波长 Transformer
+        # 恢复形状并应用波长 Transformer
         x = x.view(batch_size, num_wavelengths, seq_len,
                    -1).permute(0, 2, 1, 3)
         x = x.reshape(batch_size * seq_len, num_wavelengths, -1)
-
-        # 波长 Transformer
         x = self.wavelength_transformer(x)
 
         # 恢复形状并解码
@@ -114,15 +105,15 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
 model = EnhancedTimeWavelengthTransformer().cuda()
 criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-scaler = GradScaler()  # 使用 GradScaler 进行混合精度训练
 
-# 加载检查点（如果有）
+# 加载检查点（如果存在）
 try:
     load_checkpoint(model, optimizer)
 except FileNotFoundError:
     print("No checkpoint found, starting from scratch.")
 
 print("开始训练...")
+
 # 训练循环
 num_epochs = 50
 for epoch in range(num_epochs):
@@ -131,29 +122,26 @@ for epoch in range(num_epochs):
 
     for batch_x, batch_y in data_loader:
         batch_x, batch_y = batch_x.cuda(), batch_y.cuda()
-
         optimizer.zero_grad()
-        with autocast():  # 使用 AMP 进行前向传播
-            output = model(batch_x)
-            loss = criterion(output, batch_y)
 
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
+        output = model(batch_x)
+        loss = criterion(output, batch_y)
+        loss.backward()
+        optimizer.step()
+
         epoch_loss += loss.item()
+        torch.cuda.empty_cache()  # 每次批次处理后清理显存
 
     print(
         f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss / len(data_loader):.5f}'
     )
     save_checkpoint(model, optimizer)
-    torch.cuda.empty_cache()  # 清理显存
 
 # 保存最终模型
 save_checkpoint(model, optimizer)
-
 print("训练完成.")
 
-# 推理过程
+# 推理阶段
 batch_size = 64
 results = []
 model.eval()
@@ -161,16 +149,15 @@ model.eval()
 with torch.no_grad():
     for i in range(0, data_train_reshaped.shape[0], batch_size):
         batch = data_train_reshaped[i:i + batch_size].cuda()
-        with autocast():  # 在推理时也使用 AMP
-            output = model(batch)
+        output = model(batch)
         results.append(output.cpu())
-        torch.cuda.empty_cache()  # 清理显存
+        torch.cuda.empty_cache()  # 推理时每次批次处理后清理显存
 
 # 合并推理结果
 denoised_data = torch.cat(results, dim=0)
 del results
 
-# 恢复数据形状
+# 恢复原始数据形状
 denoised_data = denoised_data.reshape(673, 283, 187, 32).permute(0, 2, 1, 3)
 data_restored = denoised_data * (data_max - data_min) + data_min
 del denoised_data
@@ -179,6 +166,5 @@ del denoised_data
 data_restored_np = data_restored.cpu().numpy()
 np.save("denoised_data.npy", data_restored_np)
 
-# 打印结果形状
 print(data_restored.shape)  # 应为 (673, 187, 283, 32)
 print("降噪数据已保存.")
