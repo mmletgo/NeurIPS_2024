@@ -2,7 +2,6 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
-from torch.amp import GradScaler, autocast
 
 # 数据加载
 data_folder = 'input/binned-dataset-v3/'
@@ -101,11 +100,10 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
         return self.decoder(x)
 
 
-# 初始化模型、损失函数、优化器和混合精度工具
+# 初始化模型、损失函数和优化器
 model = EnhancedTimeWavelengthTransformer().cuda()
 criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-scaler = GradScaler('cuda')  # AMP 混合精度缩放器
 
 try:
     load_checkpoint(model, optimizer)
@@ -125,14 +123,13 @@ for epoch in range(num_epochs):
         batch_x, batch_y = batch_x.cuda(), batch_y.cuda()
         optimizer.zero_grad()
 
-        # 使用 AMP 进行前向传播，并将损失计算移出 autocast 范围
-        with autocast('cuda'):
-            output = model(batch_x)
-        loss = criterion(output, batch_y)  # 损失计算在 AMP 外部
+        # 前向传播和损失计算
+        output = model(batch_x)
+        loss = criterion(output, batch_y)
 
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
+        # 反向传播和优化
+        loss.backward()
+        optimizer.step()
 
         epoch_loss += loss.item()
         torch.cuda.empty_cache()  # 每次批次处理后清理显存
@@ -154,8 +151,7 @@ model.eval()
 with torch.no_grad():
     for i in range(0, data_train_reshaped.shape[0], batch_size):
         batch = data_train_reshaped[i:i + batch_size].cuda()
-        with autocast('cuda'):
-            output = model(batch)
+        output = model(batch)
         results.append(output.cpu())
         torch.cuda.empty_cache()  # 推理时每次批次处理后清理显存
 
