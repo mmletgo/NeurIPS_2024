@@ -4,27 +4,6 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 
-# 模型保存与加载函数
-def save_checkpoint(model,
-                    optimizer,
-                    path='noise_reduction_model_checkpoint.pth'):
-    torch.save(
-        {
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-        }, path)
-    print("Checkpoint saved.")
-
-
-def load_checkpoint(model,
-                    optimizer,
-                    path='noise_reduction_model_checkpoint.pth'):
-    checkpoint = torch.load(path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    print("Checkpoint loaded.")
-
-
 # 定义增强版 Transformer 模型
 class EnhancedTimeWavelengthTransformer(nn.Module):
 
@@ -46,7 +25,7 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
                                        dropout=dropout,
                                        batch_first=True),
             num_layers=num_layers)
-        self.decoder = nn.Linear(d_model, d_model)
+        self.output_layer = nn.Linear(d_model, 1)
 
     def forward(self, x):
         batch_size, num_wavelengths, seq_len, space_dim = x.size()
@@ -60,25 +39,53 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
         x = self.wavelength_transformer(x)
         x = x.view(batch_size, seq_len, num_wavelengths,
                    -1).permute(0, 2, 1, 3)
-        return self.decoder(x)
+        return self.output_layer(x).squeeze(-1)
 
 
-# 主函数
+# 模型保存与加载函数
+def save_checkpoint(model,
+                    optimizer,
+                    path='noise_reduction_model_checkpoint.pth'):
+    torch.save(
+        {
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+        }, path)
+    print("Checkpoint saved.")
+
+
+def load_checkpoint(model,
+                    optimizer,
+                    path='noise_reduction_model_checkpoint.pth'):
+    checkpoint = torch.load(path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    print("Checkpoint loaded.")
+
+
 def main():
+    # 读取目标文件
+    auxiliary_folder = 'input/ariel-data-challenge-2024/'
+    train_solution = np.loadtxt(f'{auxiliary_folder}/train_labels.csv',
+                                delimiter=',',
+                                skiprows=1)
+    targets = train_solution[:, 1:]  # 形状 (673, 283)
+    print(f"目标数据读取完毕，形状: {targets.shape}")
+
     # 数据加载
     data_folder = 'input/binned-dataset-v3/'
     signal_AIRS_diff_transposed_binned = np.load(
         f'{data_folder}/data_train.npy')
     signal_FGS_diff_transposed_binned = np.load(
         f'{data_folder}/data_train_FGS.npy')
-    print("数据初步加载完毕.")
+    print("光谱数据初步加载完毕.")
 
     # 数据处理与组合
     FGS_column = signal_FGS_diff_transposed_binned.sum(axis=2)
     del signal_FGS_diff_transposed_binned
 
     dataset = np.concatenate(
-        [signal_AIRS_diff_transposed_binned, FGS_column[:, :, np.newaxis, :]],
+        [FGS_column[:, :, np.newaxis, :], signal_AIRS_diff_transposed_binned],
         axis=2)
     del signal_AIRS_diff_transposed_binned, FGS_column
 
@@ -95,9 +102,10 @@ def main():
     del data_train_normalized  # 释放内存
     print(f"数据形状: {data_train_reshaped.shape}")
 
-    # 数据加载器
-    batch_size = 16  # 批次大小减小
-    dataset2 = TensorDataset(data_train_reshaped, data_train_reshaped)
+    # 创建数据集和加载器
+    batch_size = 32
+    targets_tensor = torch.tensor(targets).float()
+    dataset2 = TensorDataset(data_train_reshaped, targets_tensor)
     data_loader = DataLoader(dataset2,
                              batch_size=batch_size,
                              shuffle=True,
@@ -128,7 +136,7 @@ def main():
             optimizer.zero_grad()
 
             # 前向传播和损失计算
-            output = model(batch_x)
+            output = model(batch_x).squeeze(-1)  # 输出形状 (batch_size, 283)
             loss = criterion(output, batch_y)
 
             # 反向传播和优化
@@ -156,26 +164,17 @@ def main():
             batch = data_train_reshaped[i:i + batch_size].cuda()
             output = model(batch)
             results.append(output.cpu())
-            torch.cuda.empty_cache()  # 推理时每次批次处理后清理显存
+            torch.cuda.empty_cache()
 
     # 合并推理结果
-    denoised_data = torch.cat(results, dim=0)
-    del results
+    predicted_targets = torch.cat(results, dim=0).numpy()
 
-    # 恢复原始数据形状
-    denoised_data = denoised_data.reshape(673, 283, 187,
-                                          32).permute(0, 2, 1, 3)
-    data_restored = denoised_data * (data_max - data_min) + data_min
-    del denoised_data
-
-    # 保存最终降噪数据
-    data_restored_np = data_restored.cpu().numpy()
-    np.save("denoised_data.npy", data_restored_np)
-
-    print(data_restored.shape)  # 应为 (673, 187, 283, 32)
-    print("降噪数据已保存.")
+    # 保存预测结果
+    np.save("predicted_targets.npy", predicted_targets)
+    print(predicted_targets.shape)  # 应为 (673, 283)
+    print("预测结果已保存.")
 
 
-# 入口点
+# 程序入口
 if __name__ == "__main__":
     main()
