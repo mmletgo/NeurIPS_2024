@@ -221,7 +221,7 @@ def main():
         list(zip(data_train_reshaped, targets_tensor)), [train_size, val_size])
 
     # 数据加载器
-    batch_size = 16
+    batch_size = 256
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
 
@@ -229,6 +229,10 @@ def main():
     model = EnhancedTimeWavelengthTransformer().cuda()
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    try:
+        load_best_model(model, optimizer)
+    except:
+        print("未找到最佳模型，开始训练。")
 
     best_val_loss = float('inf')
 
@@ -260,7 +264,7 @@ def main():
         val_loss /= len(val_loader)
 
         print(
-            f'Epoch [{epoch + 1}/50], Train Loss: {train_loss:.5f}, Val Loss: {val_loss:.5f}'
+            f'Epoch [{epoch + 1}], Train Loss: {train_loss:.16f}, Val Loss: {val_loss:.16f}'
         )
         best_val_loss = save_best_model(model, optimizer, val_loss,
                                         best_val_loss)
