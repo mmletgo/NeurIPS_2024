@@ -135,14 +135,15 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
             -1)  # (batch_size, seq_len, num_wavelengths)
 
         # 升维
-        x = x.permute(0, 2, 1)  # (batch_size, num_wavelengths, seq_len)
-        x = self.expand_time(x)  # (batch_size , num_wavelengths, new_seq_len)
+        x = self.expand_time(x)  # (batch_size, new_seq_len, num_wavelengths)
 
-        x = x.permute(0, 2, 1)  # (batch_size, new_seq_len, num_wavelengths)
+        x = x.permute(0, 2, 1)  # (batch_size, num_wavelengths,new_seq_len)
         x = self.expand_wavelength(
-            x)  # (batch_size, new_seq_len, new_num_wavelengths)
+            x)  # (batch_size, new_num_wavelengths,new_seq_len)
 
         # 5. 时间维度吸收峰特征提取
+        x = x.permute(0, 2,
+                      1)  # (batch_size, new_seq_len, new_num_wavelengths)
         x = self.time_peak_transformer(
             x)  # (batch_size , new_seq_len, new_num_wavelengths)
 
