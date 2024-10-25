@@ -262,6 +262,23 @@ def main():
 
     load_best_model(model, optimizer)
     print("训练完成并加载最佳模型。")
+    with torch.no_grad():
+        model.eval()
+        results = []
+
+        for i in range(0, data_train_reshaped.size(0), batch_size):
+            batch = data_train_reshaped[i:i + batch_size].cuda()
+            output = model(batch).cpu().numpy()
+            results.append(output)
+
+            torch.cuda.empty_cache()  # 每次批次处理后清理显存
+
+        # 合并所有批次结果
+        all_predictions = np.concatenate(results, axis=0)
+
+        # 保存预测结果
+        np.save("predicted_targets.npy", all_predictions)
+        print("预测结果已保存。")
 
 
 if __name__ == "__main__":
