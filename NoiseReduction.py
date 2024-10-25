@@ -2,24 +2,21 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
-from torch.cuda.amp import autocast, GradScaler
-
+from torch.amp import GradScaler, autocast
 # 数据加载
 data_folder = 'input/binned-dataset-v3/'
 signal_AIRS_diff_transposed_binned = np.load(f'{data_folder}/data_train.npy')
 signal_FGS_diff_transposed_binned = np.load(
     f'{data_folder}/data_train_FGS.npy')
-
+print("数据初步加载完毕.")
 # 数据处理与组合
 FGS_column = signal_FGS_diff_transposed_binned.sum(axis=2)
 del signal_FGS_diff_transposed_binned
-torch.cuda.empty_cache()  # 清理显存
 
 dataset = np.concatenate(
     [signal_AIRS_diff_transposed_binned, FGS_column[:, :, np.newaxis, :]],
     axis=2)
 del signal_AIRS_diff_transposed_binned, FGS_column
-torch.cuda.empty_cache()  # 清理显存
 
 # 转换为 Tensor 并归一化
 data_train_tensor = torch.tensor(dataset).float()
@@ -27,12 +24,9 @@ data_min = data_train_tensor.min(dim=1, keepdim=True)[0]
 data_max = data_train_tensor.max(dim=1, keepdim=True)[0]
 data_train_normalized = (data_train_tensor - data_min) / (data_max - data_min)
 del data_train_tensor, dataset  # 释放内存
-torch.cuda.empty_cache()
-
 # 确保数据为 4D 形状 (673, 283, 187, 32)
 data_train_reshaped = data_train_normalized.permute(0, 2, 1, 3)
 del data_train_normalized  # 释放内存
-torch.cuda.empty_cache()
 print(f"数据形状: {data_train_reshaped.shape}")
 
 # 数据加载器
@@ -41,7 +35,6 @@ dataset2 = TensorDataset(data_train_reshaped, data_train_reshaped)
 data_loader = DataLoader(dataset2,
                          batch_size=batch_size,
                          shuffle=True,
-                         pin_memory=True,
                          num_workers=0)
 print("数据加载器准备完毕.")
 
@@ -79,12 +72,14 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
         self.time_transformer = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model=d_model,
                                        nhead=nhead,
-                                       dropout=dropout),
+                                       dropout=dropout,
+                                       batch_first=True),
             num_layers=num_layers)
         self.wavelength_transformer = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model=d_model,
                                        nhead=nhead,
-                                       dropout=dropout),
+                                       dropout=dropout,
+                                       batch_first=True),
             num_layers=num_layers)
         self.decoder = nn.Linear(d_model, d_model)
 
@@ -107,7 +102,7 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
 model = EnhancedTimeWavelengthTransformer().cuda()
 criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-scaler = GradScaler()  # AMP 混合精度缩放器
+scaler = GradScaler('cuda')  # AMP 混合精度缩放器
 
 try:
     load_checkpoint(model, optimizer)
@@ -128,7 +123,7 @@ for epoch in range(num_epochs):
         optimizer.zero_grad()
 
         # 使用 AMP 进行前向传播
-        with autocast():
+        with autocast('cuda'):
             output = model(batch_x)
             loss = criterion(output, batch_y)
 
@@ -156,7 +151,7 @@ model.eval()
 with torch.no_grad():
     for i in range(0, data_train_reshaped.shape[0], batch_size):
         batch = data_train_reshaped[i:i + batch_size].cuda()
-        with autocast():
+        with autocast('cuda'):
             output = model(batch)
         results.append(output.cpu())
         torch.cuda.empty_cache()  # 推理时每次批次处理后清理显存
