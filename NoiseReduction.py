@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
+from torch.cuda.amp import autocast, GradScaler
 
 # 数据加载
 data_folder = 'input/binned-dataset-v3/'
@@ -12,29 +13,36 @@ signal_FGS_diff_transposed_binned = np.load(
 # 数据处理与组合
 FGS_column = signal_FGS_diff_transposed_binned.sum(axis=2)
 del signal_FGS_diff_transposed_binned
-torch.cuda.empty_cache()
+torch.cuda.empty_cache()  # 清理显存
+
 dataset = np.concatenate(
     [signal_AIRS_diff_transposed_binned, FGS_column[:, :, np.newaxis, :]],
     axis=2)
 del signal_AIRS_diff_transposed_binned, FGS_column
-torch.cuda.empty_cache()
+torch.cuda.empty_cache()  # 清理显存
+
 # 转换为 Tensor 并归一化
-data_train_tensor = torch.tensor(dataset).float()
+data_train_tensor = torch.tensor(dataset).float().cuda()  # 直接加载到 GPU
 data_min = data_train_tensor.min(dim=1, keepdim=True)[0]
 data_max = data_train_tensor.max(dim=1, keepdim=True)[0]
 data_train_normalized = (data_train_tensor - data_min) / (data_max - data_min)
-del data_train_tensor, dataset
+del data_train_tensor, dataset  # 释放内存
 torch.cuda.empty_cache()
+
 # 确保数据为 4D 形状 (673, 283, 187, 32)
-data_train_reshaped = data_train_normalized.permute(0, 2, 1, 3).cuda()
+data_train_reshaped = data_train_normalized.permute(0, 2, 1, 3)
 del data_train_normalized  # 释放内存
 torch.cuda.empty_cache()
-print(f"数据形状: {data_train_reshaped.shape}")  # (673, 283, 187, 32)
+print(f"数据形状: {data_train_reshaped.shape}")
 
 # 数据加载器
-batch_size = 32
+batch_size = 16  # 批次大小减小
 dataset2 = TensorDataset(data_train_reshaped, data_train_reshaped)
-data_loader = DataLoader(dataset2, batch_size=batch_size, shuffle=True)
+data_loader = DataLoader(dataset2,
+                         batch_size=batch_size,
+                         shuffle=True,
+                         pin_memory=True,
+                         num_workers=0)
 print("数据加载器准备完毕.")
 
 
@@ -82,43 +90,35 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
 
     def forward(self, x):
         batch_size, num_wavelengths, seq_len, space_dim = x.size()
-
-        # 空间卷积
         x = x.permute(0, 1, 3, 2).reshape(-1, space_dim, seq_len)
         x = self.conv1d(x).view(batch_size, num_wavelengths, -1, seq_len)
-
-        # 时间 Transformer
         x = x.permute(0, 1, 3, 2).reshape(-1, seq_len, space_dim)
         x = self.time_transformer(x)
-
-        # 恢复形状并应用波长 Transformer
         x = x.view(batch_size, num_wavelengths, seq_len,
                    -1).permute(0, 2, 1, 3)
         x = x.reshape(batch_size * seq_len, num_wavelengths, -1)
         x = self.wavelength_transformer(x)
-
-        # 恢复形状并解码
         x = x.view(batch_size, seq_len, num_wavelengths,
                    -1).permute(0, 2, 1, 3)
         return self.decoder(x)
 
 
-# 初始化模型、损失函数和优化器
+# 初始化模型、损失函数、优化器和混合精度工具
 model = EnhancedTimeWavelengthTransformer().cuda()
 criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+scaler = GradScaler()  # AMP 混合精度缩放器
 
-# 加载检查点（如果存在）
 try:
     load_checkpoint(model, optimizer)
 except FileNotFoundError:
     print("No checkpoint found, starting from scratch.")
 torch.cuda.empty_cache()
 print(torch.cuda.memory_summary())
-print("开始训练...")
 
 # 训练循环
 num_epochs = 50
+print("开始训练...")
 for epoch in range(num_epochs):
     model.train()
     epoch_loss = 0.0
@@ -127,10 +127,14 @@ for epoch in range(num_epochs):
         batch_x, batch_y = batch_x.cuda(), batch_y.cuda()
         optimizer.zero_grad()
 
-        output = model(batch_x)
-        loss = criterion(output, batch_y)
-        loss.backward()
-        optimizer.step()
+        # 使用 AMP 进行前向传播
+        with autocast():
+            output = model(batch_x)
+            loss = criterion(output, batch_y)
+
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
 
         epoch_loss += loss.item()
         torch.cuda.empty_cache()  # 每次批次处理后清理显存
@@ -145,14 +149,15 @@ save_checkpoint(model, optimizer)
 print("训练完成.")
 
 # 推理阶段
-batch_size = 32
+batch_size = 16  # 推理阶段同样使用较小批次
 results = []
 model.eval()
 
 with torch.no_grad():
     for i in range(0, data_train_reshaped.shape[0], batch_size):
         batch = data_train_reshaped[i:i + batch_size].cuda()
-        output = model(batch)
+        with autocast():
+            output = model(batch)
         results.append(output.cpu())
         torch.cuda.empty_cache()  # 推理时每次批次处理后清理显存
 
