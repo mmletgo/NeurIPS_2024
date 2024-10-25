@@ -165,12 +165,17 @@ def save_best_model(model,
                     optimizer,
                     val_loss,
                     best_val_loss,
-                    path='best_model.pth'):
+                    path='best_model.pth',
+                    target_min=0,
+                    target_max=1):
     if val_loss < best_val_loss:
         torch.save(
             {
                 'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict()
+                'optimizer_state_dict': optimizer.state_dict(),
+                'best_val_loss': val_loss,
+                'target_min': target_min,
+                'target_max': target_max
             }, path)
         print(f"New best model saved with val_loss: {val_loss:.5f}")
         return val_loss
@@ -181,7 +186,11 @@ def load_best_model(model, optimizer, path='best_model.pth'):
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    best_val_loss = checkpoint['best_val_loss']
+    target_min = checkpoint['target_min']
+    target_max = checkpoint['target_max']
     print("Best model loaded.")
+    return best_val_loss, target_min, target_max
 
 
 def main():
@@ -211,6 +220,10 @@ def main():
     del data_train_tensor
     data_train_reshaped = data_train_normalized.permute(0, 2, 1, 3)
     targets_tensor = torch.tensor(targets).float()
+    target_min = targets_tensor.min()
+    target_max = targets_tensor.max()
+    targets_normalized = (targets_tensor - target_min) / (target_max -
+                                                          target_min)
 
     # 数据集拆分
     num_planets = data_train_reshaped.size(0)
@@ -218,7 +231,8 @@ def main():
     val_size = num_planets - train_size
 
     train_data, val_data = random_split(
-        list(zip(data_train_reshaped, targets_tensor)), [train_size, val_size])
+        list(zip(data_train_reshaped, targets_normalized)),
+        [train_size, val_size])
 
     # 数据加载器
     batch_size = 256
@@ -230,7 +244,8 @@ def main():
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     try:
-        load_best_model(model, optimizer)
+        best_val_loss, target_min, target_max = load_best_model(
+            model, optimizer)
     except:
         print("未找到最佳模型，开始训练。")
 
@@ -266,10 +281,14 @@ def main():
         print(
             f'Epoch [{epoch + 1}], Train Loss: {train_loss:.16f}, Val Loss: {val_loss:.16f}'
         )
-        best_val_loss = save_best_model(model, optimizer, val_loss,
-                                        best_val_loss)
+        best_val_loss = save_best_model(model,
+                                        optimizer,
+                                        val_loss,
+                                        best_val_loss,
+                                        target_max=target_max,
+                                        target_min=target_min)
 
-    load_best_model(model, optimizer)
+    best_val_loss, target_min, target_max = load_best_model(model, optimizer)
     print("训练完成并加载最佳模型。")
     with torch.no_grad():
         model.eval()
@@ -284,6 +303,8 @@ def main():
 
         # 合并所有批次结果
         all_predictions = np.concatenate(results, axis=0)
+        all_predictions = all_predictions * (target_max -
+                                             target_min) + target_min
 
         # 保存预测结果
         np.save("predicted_targets.npy", all_predictions)
