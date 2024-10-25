@@ -34,6 +34,7 @@ del data_train_normalized
 batch_size = 256
 dataset2 = TensorDataset(data_train_reshaped, data_train_reshaped)  # 输入和目标相同
 data_loader = DataLoader(dataset2, batch_size=batch_size, shuffle=True)
+print("Data loaded.")
 
 
 def save_checkpoint(model,
@@ -131,6 +132,7 @@ try:
 except FileNotFoundError:
     print("No checkpoint found, starting from scratch.")
 
+print("Starting training...")
 # 训练循环
 num_epochs = 50
 for epoch in range(num_epochs):
@@ -156,7 +158,7 @@ for epoch in range(num_epochs):
     )
     save_checkpoint(model, optimizer)
 
-save_checkpoint(model, optimizer)
+print("Training finished.")
 
 # 推理时按批次处理，减少 GPU 显存占用
 batch_size = 64  # 根据 GPU 显存调整合适的 batch size
@@ -187,3 +189,4 @@ del denoised_data
 print(data_restored.shape)  # 应为 (673, 187, 283, 32)
 data_restored_np = data_restored.cpu().numpy()
 np.save("denoised_data.npy", data_restored_np)
+print("Denoised data saved.")
