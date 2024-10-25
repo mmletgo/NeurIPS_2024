@@ -3,12 +3,14 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from torch.amp import GradScaler, autocast
+
 # 数据加载
 data_folder = 'input/binned-dataset-v3/'
 signal_AIRS_diff_transposed_binned = np.load(f'{data_folder}/data_train.npy')
 signal_FGS_diff_transposed_binned = np.load(
     f'{data_folder}/data_train_FGS.npy')
 print("数据初步加载完毕.")
+
 # 数据处理与组合
 FGS_column = signal_FGS_diff_transposed_binned.sum(axis=2)
 del signal_FGS_diff_transposed_binned
@@ -24,13 +26,14 @@ data_min = data_train_tensor.min(dim=1, keepdim=True)[0]
 data_max = data_train_tensor.max(dim=1, keepdim=True)[0]
 data_train_normalized = (data_train_tensor - data_min) / (data_max - data_min)
 del data_train_tensor, dataset  # 释放内存
+
 # 确保数据为 4D 形状 (673, 283, 187, 32)
 data_train_reshaped = data_train_normalized.permute(0, 2, 1, 3)
 del data_train_normalized  # 释放内存
 print(f"数据形状: {data_train_reshaped.shape}")
 
 # 数据加载器
-batch_size = 16  # 批次大小减小
+batch_size = 256  # 批次大小减小
 dataset2 = TensorDataset(data_train_reshaped, data_train_reshaped)
 data_loader = DataLoader(dataset2,
                          batch_size=batch_size,
@@ -122,10 +125,10 @@ for epoch in range(num_epochs):
         batch_x, batch_y = batch_x.cuda(), batch_y.cuda()
         optimizer.zero_grad()
 
-        # 使用 AMP 进行前向传播
+        # 使用 AMP 进行前向传播，并将损失计算移出 autocast 范围
         with autocast('cuda'):
             output = model(batch_x)
-            loss = criterion(output, batch_y)
+        loss = criterion(output, batch_y)  # 损失计算在 AMP 外部
 
         scaler.scale(loss).backward()
         scaler.step(optimizer)
@@ -144,7 +147,7 @@ save_checkpoint(model, optimizer)
 print("训练完成.")
 
 # 推理阶段
-batch_size = 16  # 推理阶段同样使用较小批次
+batch_size = 256  # 推理阶段同样使用较小批次
 results = []
 model.eval()
 
