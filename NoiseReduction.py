@@ -109,7 +109,7 @@ def main():
         list(zip(data_train_reshaped, targets_tensor)), [train_size, val_size])
 
     # 创建数据加载器
-    batch_size = 32
+    batch_size = 16
     train_loader = DataLoader(train_data,
                               batch_size=batch_size,
                               shuffle=True,
