@@ -177,7 +177,7 @@ def save_best_model(model,
                 'target_min': target_min,
                 'target_max': target_max
             }, path)
-        print(f"New best model saved with val_loss: {val_loss:.5f}")
+        print(f"New best model saved with val_loss: {val_loss:.16f}")
         return val_loss
     return best_val_loss
 
@@ -235,7 +235,7 @@ def main():
         [train_size, val_size])
 
     # 数据加载器
-    batch_size = 256
+    batch_size = 16
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
 
