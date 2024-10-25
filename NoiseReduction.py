@@ -32,7 +32,7 @@ torch.cuda.empty_cache()
 print(f"数据形状: {data_train_reshaped.shape}")  # (673, 283, 187, 32)
 
 # 数据加载器
-batch_size = 64
+batch_size = 32
 dataset2 = TensorDataset(data_train_reshaped, data_train_reshaped)
 data_loader = DataLoader(dataset2, batch_size=batch_size, shuffle=True)
 print("数据加载器准备完毕.")
@@ -62,7 +62,7 @@ def load_checkpoint(model,
 # 定义增强版 Transformer 模型
 class EnhancedTimeWavelengthTransformer(nn.Module):
 
-    def __init__(self, d_model=32, nhead=8, num_layers=4, dropout=0.1):
+    def __init__(self, d_model=32, nhead=4, num_layers=2, dropout=0.1):
         super(EnhancedTimeWavelengthTransformer, self).__init__()
         self.conv1d = nn.Conv1d(in_channels=32,
                                 out_channels=32,
@@ -145,7 +145,7 @@ save_checkpoint(model, optimizer)
 print("训练完成.")
 
 # 推理阶段
-batch_size = 64
+batch_size = 32
 results = []
 model.eval()
 
