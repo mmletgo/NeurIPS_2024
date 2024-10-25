@@ -12,21 +12,23 @@ signal_FGS_diff_transposed_binned = np.load(
 # 数据处理与组合
 FGS_column = signal_FGS_diff_transposed_binned.sum(axis=2)
 del signal_FGS_diff_transposed_binned
+torch.cuda.empty_cache()
 dataset = np.concatenate(
     [signal_AIRS_diff_transposed_binned, FGS_column[:, :, np.newaxis, :]],
     axis=2)
 del signal_AIRS_diff_transposed_binned, FGS_column
-
+torch.cuda.empty_cache()
 # 转换为 Tensor 并归一化
 data_train_tensor = torch.tensor(dataset).float()
 data_min = data_train_tensor.min(dim=1, keepdim=True)[0]
 data_max = data_train_tensor.max(dim=1, keepdim=True)[0]
 data_train_normalized = (data_train_tensor - data_min) / (data_max - data_min)
 del data_train_tensor, dataset
-
+torch.cuda.empty_cache()
 # 确保数据为 4D 形状 (673, 283, 187, 32)
-data_train_reshaped = data_train_normalized.permute(0, 2, 1, 3)
+data_train_reshaped = data_train_normalized.permute(0, 2, 1, 3).cuda()
 del data_train_normalized  # 释放内存
+torch.cuda.empty_cache()
 print(f"数据形状: {data_train_reshaped.shape}")  # (673, 283, 187, 32)
 
 # 数据加载器
@@ -111,7 +113,8 @@ try:
     load_checkpoint(model, optimizer)
 except FileNotFoundError:
     print("No checkpoint found, starting from scratch.")
-
+torch.cuda.empty_cache()
+print(torch.cuda.memory_summary())
 print("开始训练...")
 
 # 训练循环
