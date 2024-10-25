@@ -196,14 +196,18 @@ def main():
     signal_FGS = np.load(f'{data_folder}/data_train_FGS.npy')
 
     FGS_column = signal_FGS.sum(axis=2)
+    del signal_FGS
     dataset = np.concatenate([FGS_column[:, :, np.newaxis, :], signal_AIRS],
                              axis=2)
+    del signal_AIRS, FGS_column
 
     data_train_tensor = torch.tensor(dataset).float()
+    del dataset
     data_min = data_train_tensor.min(dim=1, keepdim=True)[0]
     data_max = data_train_tensor.max(dim=1, keepdim=True)[0]
     data_train_normalized = (data_train_tensor - data_min) / (data_max -
                                                               data_min)
+    del data_train_tensor
     data_train_reshaped = data_train_normalized.permute(0, 2, 1, 3)
     targets_tensor = torch.tensor(targets).float()
 
