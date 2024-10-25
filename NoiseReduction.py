@@ -243,13 +243,12 @@ def main():
     model = EnhancedTimeWavelengthTransformer().cuda()
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    best_val_loss = float('inf')
     try:
         best_val_loss, target_min, target_max = load_best_model(
             model, optimizer)
     except:
         print("未找到最佳模型，开始训练。")
-
-    best_val_loss = float('inf')
 
     # 训练循环
     for epoch in range(50):
