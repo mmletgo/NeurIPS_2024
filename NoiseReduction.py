@@ -22,7 +22,7 @@ del signal_AIRS_diff_transposed_binned, FGS_column
 torch.cuda.empty_cache()  # 清理显存
 
 # 转换为 Tensor 并归一化
-data_train_tensor = torch.tensor(dataset).float().cuda()  # 直接加载到 GPU
+data_train_tensor = torch.tensor(dataset).float()
 data_min = data_train_tensor.min(dim=1, keepdim=True)[0]
 data_max = data_train_tensor.max(dim=1, keepdim=True)[0]
 data_train_normalized = (data_train_tensor - data_min) / (data_max - data_min)
