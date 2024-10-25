@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
+from torch.cuda.amp import autocast, GradScaler  # 导入 AMP 所需模块
 
 # 数据加载
 data_folder = 'input/binned-dataset-v3/'
@@ -113,6 +114,7 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
 model = EnhancedTimeWavelengthTransformer().cuda()
 criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+scaler = GradScaler()  # 使用 GradScaler 进行混合精度训练
 
 # 加载检查点（如果有）
 try:
@@ -129,22 +131,28 @@ for epoch in range(num_epochs):
 
     for batch_x, batch_y in data_loader:
         batch_x, batch_y = batch_x.cuda(), batch_y.cuda()
+
         optimizer.zero_grad()
-        output = model(batch_x)
-        loss = criterion(output, batch_y)
-        loss.backward()
-        optimizer.step()
+        with autocast():  # 使用 AMP 进行前向传播
+            output = model(batch_x)
+            loss = criterion(output, batch_y)
+
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
         epoch_loss += loss.item()
 
     print(
         f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss / len(data_loader):.5f}'
     )
     save_checkpoint(model, optimizer)
+    torch.cuda.empty_cache()  # 清理显存
 
 # 保存最终模型
 save_checkpoint(model, optimizer)
 
 print("训练完成.")
+
 # 推理过程
 batch_size = 64
 results = []
@@ -153,9 +161,10 @@ model.eval()
 with torch.no_grad():
     for i in range(0, data_train_reshaped.shape[0], batch_size):
         batch = data_train_reshaped[i:i + batch_size].cuda()
-        output = model(batch)
+        with autocast():  # 在推理时也使用 AMP
+            output = model(batch)
         results.append(output.cpu())
-        torch.cuda.empty_cache()
+        torch.cuda.empty_cache()  # 清理显存
 
 # 合并推理结果
 denoised_data = torch.cat(results, dim=0)
