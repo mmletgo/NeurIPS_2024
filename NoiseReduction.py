@@ -4,6 +4,35 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
 
+class MLP(nn.Module):
+
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout=0.1):
+        super(MLP, self).__init__()
+        self.layer1 = nn.Linear(input_dim, hidden_dim)
+        self.activation = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
+        self.layer2 = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x):
+        x = self.layer1(x)
+        x = self.activation(x)
+        x = self.dropout(x)
+        x = self.layer2(x)
+        return x
+
+
+class OutputMLP(nn.Module):
+
+    def __init__(self):
+        super(OutputMLP, self).__init__()
+        self.fc1 = nn.Linear(512, 256)
+        self.fc2 = nn.Linear(256, 283)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        return self.fc2(x)
+
+
 class EnhancedTimeWavelengthTransformer(nn.Module):
 
     def __init__(self,
@@ -21,8 +50,12 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
                                 padding=1)
 
         # 2. 时间维度和波长维度的升维
-        self.expand_time = nn.Linear(d_model_time, 188)  # 升维到 188
-        self.expand_wavelength = nn.Linear(d_model_wavelength, 284)  # 升维到 284
+        self.expand_time = nn.Conv1d(in_channels=d_model_time,
+                                     out_channels=256,
+                                     kernel_size=1)
+        self.expand_wavelength = nn.Conv1d(in_channels=d_model_wavelength,
+                                           out_channels=512,
+                                           kernel_size=1)
 
         # 3. 时间维度的降噪 Transformer
         self.time_denoising_transformer = nn.TransformerEncoder(
@@ -45,62 +78,85 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
 
         # 6. 时间维度的吸收峰特征提取 Transformer
         self.time_peak_transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=188,
-                                       nhead=nhead,
-                                       dropout=dropout,
-                                       batch_first=True),
+            nn.TransformerEncoderLayer(
+                d_model=512,  # num_wavelengths
+                nhead=nhead,
+                dropout=dropout,
+                batch_first=True),
             num_layers=num_layers)
 
         # 7. 波长维度的吸收峰特征提取 Transformer
         self.wavelength_peak_transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=284,
-                                       nhead=nhead,
-                                       dropout=dropout,
-                                       batch_first=True),
+            nn.TransformerEncoderLayer(
+                d_model=256,  # seq_len
+                nhead=nhead,
+                dropout=dropout,
+                batch_first=True),
             num_layers=num_layers)
 
-        # 8. 时间维度的线性层：聚合时间信息
-        self.time_linear = nn.Linear(188, 1)
+        # 8. 时间维度的MLP层：聚合时间信息
+        self.time_mlp = MLP(256, 128, 1, dropout=0.1)
 
         # 9. 输出层：预测吸收峰值
-        self.output_layer = nn.Linear(284, 283)  # 输出 (batch_size, 283)
+        self.output_layer = OutputMLP()  # 输出 (batch_size, 283)
 
     def forward(self, x):
         batch_size, num_wavelengths, seq_len, space_dim = x.size()
 
         # 1. 卷积降噪
-        x = x.permute(0, 1, 3, 2).reshape(-1, space_dim, seq_len)
-        x = self.conv1d(x).view(batch_size, num_wavelengths, -1, seq_len)
+        x = x.permute(0, 1, 3, 2).reshape(
+            -1, space_dim,
+            seq_len)  # (batch_size * num_wavelengths, space_dim, seq_len)
+        x = self.conv1d(x).view(
+            batch_size, num_wavelengths, -1,
+            seq_len)  # (batch_size, num_wavelengths, space_dim, seq_len)
 
         # 2. 时间维度的降噪 Transformer
-        x = x.permute(0, 1, 3, 2).reshape(-1, seq_len, space_dim)
-        x = self.time_denoising_transformer(x)
+        x = x.permute(0, 1, 3, 2).reshape(
+            -1, seq_len,
+            space_dim)  # (batch_size * num_wavelengths, seq_len, space_dim)
+        x = self.time_denoising_transformer(
+            x)  # (batch_size * num_wavelengths, seq_len, space_dim)
 
         # 3. 波长维度的降噪 Transformer
         x = x.view(batch_size, num_wavelengths, seq_len,
-                   -1).permute(0, 2, 1, 3)
-        x = x.reshape(batch_size * seq_len, num_wavelengths, -1)
-        x = self.wavelength_denoising_transformer(x)
+                   -1)  # (batch_size, num_wavelengths, seq_len, space_dim)
+        x = x.permute(0, 2, 1,
+                      3)  # (batch_size, seq_len, num_wavelengths, space_dim)
+        x = x.reshape(batch_size * seq_len, num_wavelengths,
+                      -1)  # (batch_size * seq_len, num_wavelengths, space_dim)
+        x = self.wavelength_denoising_transformer(
+            x)  # (batch_size * seq_len, num_wavelengths, space_dim)
 
         # 4. 空间维度线性聚合
-        x = x.view(batch_size, seq_len, num_wavelengths, -1)
+        x = x.view(batch_size, seq_len, num_wavelengths,
+                   -1)  # (batch_size, seq_len, num_wavelengths, space_dim)
         x = self.space_linear(x).squeeze(
             -1)  # (batch_size, seq_len, num_wavelengths)
 
+        # 升维
+        x = x.permute(0, 2, 1)  # (batch_size, num_wavelengths, seq_len)
+        x = self.expand_time(x)  # (batch_size , num_wavelengths, new_seq_len)
+
+        x = x.permute(0, 2, 1)  # (batch_size, new_seq_len, num_wavelengths)
+        x = self.expand_wavelength(
+            x)  # (batch_size, new_seq_len, new_num_wavelengths)
+
         # 5. 时间维度吸收峰特征提取
-        x = self.expand_time(x)  # 升维到 188
-        x = self.time_peak_transformer(x)
+        x = self.time_peak_transformer(
+            x)  # (batch_size , new_seq_len, new_num_wavelengths)
 
         # 6. 波长维度吸收峰特征提取
-        x = x.permute(0, 2, 1)  # (batch_size, num_wavelengths, seq_len)
-        x = self.expand_wavelength(x)  # 升维到 284
-        x = self.wavelength_peak_transformer(x)
+        x = x.permute(0, 2,
+                      1)  # (batch_size, new_num_wavelengths, new_seq_len)
+        x = self.wavelength_peak_transformer(
+            x)  # (batch_size, new_num_wavelengths, new_seq_len)
 
-        # 7. 时间维度的线性聚合
-        x = self.time_linear(x).squeeze(-1)  # (batch_size, 283)
+        # 7. 时间维度的聚合
+        x = self.time_mlp(x).squeeze(-1)
 
         # 8. 最终输出层：预测吸收峰值
-        return self.output_layer(x)  # 输出 (batch_size, 283)
+        return self.output_layer(x)  # 输出 (batch_size, num_wavelengths)
 
 
 # 保存与加载模型函数
@@ -183,16 +239,19 @@ def main():
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
+            torch.cuda.empty_cache()  # 每次批次处理后清理显存
         train_loss /= len(train_loader)
 
         # 验证模型
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for batch_x, batch_y in val_loader:
-                batch_x, batch_y = batch_x.cuda(), batch_y.cuda()
-                output = model(batch_x).squeeze(-1)
-                val_loss += criterion(output, batch_y).item()
+            for valid_batch_x, valid_batch_y in val_loader:
+                valid_batch_x, valid_batch_y = valid_batch_x.cuda(
+                ), valid_batch_y.cuda()
+                valid_output = model(valid_batch_x).squeeze(-1)
+                val_loss += criterion(valid_output, valid_batch_y).item()
+                torch.cuda.empty_cache()  # 每次批次处理后清理显存
         val_loss /= len(val_loader)
 
         print(
