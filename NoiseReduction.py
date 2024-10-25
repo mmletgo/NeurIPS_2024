@@ -302,9 +302,10 @@ def main():
             torch.cuda.empty_cache()  # 每次批次处理后清理显存
 
         # 合并所有批次结果
-        all_predictions = np.concatenate(results, axis=0)
+        all_predictions = torch.tensor(np.concatenate(results, axis=0))
         all_predictions = all_predictions * (target_max -
                                              target_min) + target_min
+        all_predictions = all_predictions.numpy()
 
         # 保存预测结果
         np.save("predicted_targets.npy", all_predictions)
