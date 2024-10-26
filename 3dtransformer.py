@@ -24,42 +24,42 @@ class MultiDimensionalTransformer(nn.Module):
 
         # 2. 定义 6 个 Transformer 层
         self.time_space_transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=d_model_time,
+            nn.TransformerEncoderLayer(d_model=32,
                                        nhead=nhead,
                                        dropout=dropout,
                                        batch_first=True),
             num_layers=num_layers)
 
         self.time_wavelength_transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=d_model_time,
+            nn.TransformerEncoderLayer(d_model=d_model_wavelength,
                                        nhead=nhead,
                                        dropout=dropout,
                                        batch_first=True),
             num_layers=num_layers)
 
         self.space_time_transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=32,
+            nn.TransformerEncoderLayer(d_model=d_model_time,
                                        nhead=nhead,
                                        dropout=dropout,
                                        batch_first=True),
             num_layers=num_layers)
 
         self.space_wavelength_transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=32,
+            nn.TransformerEncoderLayer(d_model=d_model_wavelength,
                                        nhead=nhead,
                                        dropout=dropout,
                                        batch_first=True),
             num_layers=num_layers)
 
         self.wavelength_time_transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=d_model_wavelength,
+            nn.TransformerEncoderLayer(d_model=d_model_time,
                                        nhead=nhead,
                                        dropout=dropout,
                                        batch_first=True),
             num_layers=num_layers)
 
         self.wavelength_space_transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=d_model_wavelength,
+            nn.TransformerEncoderLayer(d_model=32,
                                        nhead=nhead,
                                        dropout=dropout,
                                        batch_first=True),
