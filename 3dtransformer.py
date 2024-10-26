@@ -244,9 +244,10 @@ def main():
         [train_size, val_size])
 
     # 数据加载器
-    batch_size = 16
+    batch_size = 8
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+    print("数据加载完成。")
 
     # 初始化模型、损失函数和优化器
     model = MultiDimensionalTransformer().cuda()
