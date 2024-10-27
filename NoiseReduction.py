@@ -21,18 +21,6 @@ class MLP(nn.Module):
         return x
 
 
-class OutputMLP(nn.Module):
-
-    def __init__(self):
-        super(OutputMLP, self).__init__()
-        self.fc1 = nn.Linear(512, 256)
-        self.fc2 = nn.Linear(256, 283)
-
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        return self.fc2(x)
-
-
 class EnhancedTimeWavelengthTransformer(nn.Module):
 
     def __init__(self,
@@ -73,8 +61,8 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
                                        batch_first=True),
             num_layers=num_layers)
 
-        # 5. 空间维度的线性层：聚合空间维度
-        self.space_linear = nn.Linear(32, 1)
+        # 5. 空间维度的mlp层：聚合空间维度
+        self.space_mlp = MLP(32, 16, 1, dropout=0.1)
 
         # 6. 时间维度的吸收峰特征提取 Transformer
         self.time_peak_transformer = nn.TransformerEncoder(
@@ -98,7 +86,8 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
         self.time_mlp = MLP(256, 128, 1, dropout=0.1)
 
         # 9. 输出层：预测吸收峰值
-        self.output_layer = OutputMLP()  # 输出 (batch_size, 283)
+        self.output_layer = MLP(512, 256, 283,
+                                dropout=0.1)  # 输出 (batch_size, 283)
 
     def forward(self, x):
         batch_size, num_wavelengths, seq_len, space_dim = x.size()
@@ -131,7 +120,7 @@ class EnhancedTimeWavelengthTransformer(nn.Module):
         # 4. 空间维度线性聚合
         x = x.view(batch_size, seq_len, num_wavelengths,
                    -1)  # (batch_size, seq_len, num_wavelengths, space_dim)
-        x = self.space_linear(x).squeeze(
+        x = self.space_mlp(x).squeeze(
             -1)  # (batch_size, seq_len, num_wavelengths)
 
         # 升维
@@ -244,9 +233,10 @@ def main():
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     best_val_loss = float('inf')
+    modelname = 'best_model_NR_v2.0.pth'
     try:
         best_val_loss, target_min, target_max = load_best_model(
-            model, optimizer)
+            model, optimizer, modelname)
     except:
         print("未找到最佳模型，开始训练。")
 
@@ -284,10 +274,12 @@ def main():
                                         optimizer,
                                         val_loss,
                                         best_val_loss,
+                                        path=modelname,
                                         target_max=target_max,
                                         target_min=target_min)
 
-    best_val_loss, target_min, target_max = load_best_model(model, optimizer)
+    best_val_loss, target_min, target_max = load_best_model(
+        model, optimizer, modelname)
     print("训练完成并加载最佳模型。")
     with torch.no_grad():
         model.eval()

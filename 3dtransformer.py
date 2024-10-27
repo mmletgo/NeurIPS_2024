@@ -14,7 +14,7 @@ class MultiDimensionalTransformer(nn.Module):
                  dropout=0.1):
         super(MultiDimensionalTransformer, self).__init__()
 
-        # 1. MLP 升维：对同一个矩阵先进行时间升维，再进行波长升维
+        # 1. 卷积升维：对同一个矩阵先进行时间升维，再进行波长升维
         self.expand_time = nn.Conv1d(in_channels=187,
                                      out_channels=d_model_time,
                                      kernel_size=1)
