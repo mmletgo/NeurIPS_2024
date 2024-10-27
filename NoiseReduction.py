@@ -218,7 +218,9 @@ def main():
     num_planets = data_train_reshaped.size(0)
     train_size = int(0.8 * num_planets)
     val_size = num_planets - train_size
-
+    # 设置随机数种子
+    seed = 42
+    torch.manual_seed(seed)
     train_data, val_data = random_split(
         list(zip(data_train_reshaped, targets_normalized)),
         [train_size, val_size])
