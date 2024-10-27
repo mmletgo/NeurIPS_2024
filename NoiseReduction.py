@@ -1,5 +1,4 @@
 import numpy as np
-import torch
 from torch import nn
 
 
@@ -153,4 +152,4 @@ if __name__ == "__main__":
     train_predict(EnhancedTimeWavelengthTransformer,
                   modelname="NR_v2.0",
                   batch_size=16,
-                  train_epchos=50)
+                  train_epchos=100)
