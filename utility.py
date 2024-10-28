@@ -153,8 +153,13 @@ def load_AIRS_FGS_data(AIRs_path, FGS_path):
 def normalized_reshaped(dataset):
     data_train_tensor = torch.tensor(dataset).float()
     del dataset
-    data_min = data_train_tensor.min(dim=(0, 1), keepdim=True)[0]
-    data_max = data_train_tensor.max(dim=(0, 1), keepdim=True)[0]
+    # 先在第一维上计算最小值和最大值
+    min_first_dim = data_train_tensor.min(dim=1, keepdim=True)[0]
+    max_first_dim = data_train_tensor.max(dim=1, keepdim=True)[0]
+
+    # 再在第二维上计算最小值和最大值
+    data_min = min_first_dim.min(dim=2, keepdim=True)[0]
+    data_max = max_first_dim.max(dim=2, keepdim=True)[0]
     data_train_normalized = (data_train_tensor - data_min) / (data_max -
                                                               data_min)
     del data_train_tensor

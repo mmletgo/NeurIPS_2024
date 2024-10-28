@@ -14,8 +14,13 @@ def normalize_and_reshape_chunks(dataset_test, planet_num):
 
     for i in range(planet_num):
         data_test_tensor = torch.tensor(dataset_test[i]).float()
-        data_min = data_test_tensor.min(dim=(0, 1), keepdim=True)[0]
-        data_max = data_test_tensor.max(dim=(0, 1), keepdim=True)[0]
+        # 先在第一维上计算最小值和最大值
+        min_first_dim = data_test_tensor.min(dim=0, keepdim=True)[0]
+        max_first_dim = data_test_tensor.max(dim=0, keepdim=True)[0]
+
+        # 再在第二维上计算最小值和最大值
+        data_min = min_first_dim.min(dim=1, keepdim=True)[0]
+        data_max = max_first_dim.max(dim=1, keepdim=True)[0]
         data_test_normalized = (data_test_tensor - data_min) / (data_max -
                                                                 data_min)
         del data_test_tensor
@@ -27,12 +32,13 @@ def normalize_and_reshape_chunks(dataset_test, planet_num):
     return normalized_reshaped_test
 
 
-def load_data_chunked(file, nb_files):
+def load_data_chunked(file, nb_files, delete=True):
     for i in range(nb_files):
         file_path = file + '_{}.npy'.format(i)
         data = np.load(file_path)
         yield data
-        os.remove(file_path)  # 删除文件
+        if delete:
+            os.remove(file_path)  # 删除文件
 
 
 def del_files(file, nb_files):
@@ -42,7 +48,11 @@ def del_files(file, nb_files):
             os.remove(file_path)
 
 
-def process_and_memmap_chunks(path_out, nb_files, chunk_size, output_file):
+def process_and_memmap_chunks(path_out,
+                              nb_files,
+                              chunk_size,
+                              output_file,
+                              delete=True):
     # 创建内存映射文件
     dataset_test = np.memmap(output_file,
                              dtype='float32',
@@ -52,8 +62,8 @@ def process_and_memmap_chunks(path_out, nb_files, chunk_size, output_file):
     current_index = 0
 
     for test_signal_FGS_chunk, test_signal_AIRS_chunk in zip(
-            load_data_chunked(path_out + 'FGS1_test', nb_files),
-            load_data_chunked(path_out + 'AIRS_clean_test', nb_files)):
+            load_data_chunked(path_out + 'FGS1_test', nb_files, delete),
+            load_data_chunked(path_out + 'AIRS_clean_test', nb_files, delete)):
 
         test_FGS_column_chunk = test_signal_FGS_chunk.sum(axis=2)
         del test_signal_FGS_chunk
