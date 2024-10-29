@@ -402,7 +402,6 @@ def train_predict2(ModelClass, modelname, batch_size, train_epochs):
     # 特征
     with open('input/train_preprocessed.pkl', 'rb') as file:
         full_predictions_spectra = pickle.load(file)
-    auxiliary_folder = 'input/ariel-data-challenge-2024/'
     train_solution = np.loadtxt(
         '/kaggle/input/ariel-data-challenge-2024/train_labels.csv',
         delimiter=',',
@@ -441,30 +440,26 @@ def train_predict2(ModelClass, modelname, batch_size, train_epochs):
         sampled_indices.extend(additional_samples)
 
     predictions_spectra = full_predictions_spectra[sampled_indices]
-    wave_alpha_train = np.array([
-        cal_flux(predictions_spectra[i])
-        for i in range(len(predictions_spectra))
-    ])
+
     whitelight_s_train = np.array([
         predict_spectra(predictions_spectra[i])
         for i in range(len(predictions_spectra))
     ])  # 预测每个星球的白光缩放比例S
-    b = 0.007255
-    a = 0.000375
-    whitelight_s_train_normalized = (whitelight_s_train - a) / (b - a)
-    whitelight_s_train_reshaped = whitelight_s_train_normalized[:, np.newaxis]
-    data_train_reshaped = np.concatenate(
-        [np.stack(wave_alpha_train),
-         np.stack(whitelight_s_train_reshaped)],
-        axis=1  # 按第 2 维度（axis=1）进行合并，以便后续一起处理
-    )
-    data_train_reshaped = torch.tensor(data_train_reshaped).float()
-    # 目标
-    auxiliary_folder = 'input/ariel-data-challenge-2024/'
-    targets_normalized, target_min, target_max = load_traget(
-        f'{auxiliary_folder}/train_labels.csv')
-    targets_normalized = targets_normalized[sampled_indices]
 
+    data_train_reshaped = torch.tensor(predictions_spectra).float()
+    # 目标
+    train_solution = np.loadtxt(
+        '/kaggle/input/ariel-data-challenge-2024/train_labels.csv',
+        delimiter=',',
+        skiprows=1)
+
+    targets = train_solution[:, 1:]
+    newtarget = targets[sampled_indices] / whitelight_s_train[:, np.newaxis]
+    targets_tensor = torch.tensor(newtarget).float()
+    target_min = targets_tensor.min()
+    target_max = targets_tensor.max()
+    targets_normalized = (targets_tensor - target_min) / (target_max -
+                                                          target_min)
     # 初始化模型、损失函数和优化器
     model = ModelClass().cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
