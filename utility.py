@@ -6,6 +6,7 @@ import pandas as pd
 import scipy.stats
 from scipy.optimize import minimize
 import pickle
+from sklearn.metrics import mean_squared_error
 
 
 class ParticipantVisibleError(Exception):
@@ -194,6 +195,7 @@ def train_fuc(data_train_reshaped,
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
 
     criterion = nn.MSELoss()
+    best_sigma = float('inf')
     # 训练循环
     for epoch in range(train_epchos):
         model.train()
@@ -212,17 +214,30 @@ def train_fuc(data_train_reshaped,
         # 验证模型
         model.eval()
         val_loss = 0.0
+        sigma_pred = 0.0
         with torch.no_grad():
             for valid_batch_x, valid_batch_y in val_loader:
                 valid_batch_x, valid_batch_y = valid_batch_x.cuda(
                 ), valid_batch_y.cuda()
                 valid_output = model(valid_batch_x).squeeze(-1)
                 val_loss += criterion(valid_output, valid_batch_y).item()
+                all_predictions = valid_output.cpu() * (
+                    target_max - target_min) + target_min
+                all_predictions = all_predictions.numpy()
+                targets = valid_batch_y.cpu() * (target_max -
+                                                 target_min) + target_min
+                targets = targets.numpy()
+                sigma_pred += mean_squared_error(targets,
+                                                 all_predictions,
+                                                 squared=False)
                 torch.cuda.empty_cache()  # 每次批次处理后清理显存
         val_loss /= len(val_loader)
+        sigma_pred /= len(val_loader)
+        if sigma_pred < best_sigma:
+            best_sigma = sigma_pred
 
         print(
-            f'Epoch [{epoch + 1}], Train Loss: {train_loss:.16f}, Val Loss: {val_loss:.16f}'
+            f'Epoch [{epoch + 1}], Train Loss: {train_loss:.16f}, Val Loss: {val_loss:.16f}, Sigma: {sigma_pred:.16f}, Best Sigma: {best_sigma:.16f}'
         )
         best_val_loss = save_best_model(model,
                                         optimizer,
@@ -384,7 +399,12 @@ def train_predict2(ModelClass, modelname, batch_size, train_epchos):
     "数据加载与预处理"
     # 特征
     with open('input/train_preprocessed.pkl', 'rb') as file:
-        predictions_spectra = pickle.load(file)
+        full_predictions_spectra = pickle.load(file)
+    np.random.seed(42)
+    indices = np.random.choice(full_predictions_spectra.shape[0],
+                               320,
+                               replace=False)
+    predictions_spectra = full_predictions_spectra[indices]
     wave_alpha_train = np.array([
         cal_flux(predictions_spectra[i])
         for i in range(len(predictions_spectra))
@@ -403,7 +423,6 @@ def train_predict2(ModelClass, modelname, batch_size, train_epchos):
         axis=1  # 按第 2 维度（axis=1）进行合并，以便后续一起处理
     )
     data_train_reshaped = torch.tensor(data_train_reshaped).float()
-
     # 目标
     auxiliary_folder = 'input/ariel-data-challenge-2024/'
     targets_normalized, target_min, target_max = load_traget(
