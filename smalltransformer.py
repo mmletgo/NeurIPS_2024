@@ -62,7 +62,7 @@ class SmallTransformer(nn.Module):
                                 dropout=0.1)  # 输出 (batch_size, 283)
 
     def forward(self, x):
-        batch_size, seq_len, num_wavelengths = x.size()
+        # batch_size, seq_len, num_wavelengths = x.size()
         x = x.permute(0, 2, 1)  # (batch_size, num_wavelengths, seq_len)
         x = self.expand_wavelength(x)  # (batch_size, 512, seq_len)
         x = x.permute(0, 2, 1)
