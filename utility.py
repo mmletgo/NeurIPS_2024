@@ -283,7 +283,7 @@ def train_predict(ModelClass, modelname, batch_size, train_epochs):
     """新模型修改模型名称"""
     try:
         model, optimizer, best_val_loss, target_min, target_max = load_best_model(
-            model, optimizer, modelname)
+            model, optimizer, path='best_model_' + modelname + '.pth')
     except:
         print("未找到最佳模型，开始训练。")
     "训练"
@@ -459,7 +459,7 @@ def train_predict2(ModelClass, modelname, batch_size, train_epochs):
     """新模型修改模型名称"""
     try:
         model, optimizer, best_val_loss, target_min, target_max = load_best_model(
-            model, optimizer, modelname)
+            model, optimizer, path='best_model_' + modelname + '.pth')
     except:
         print("未找到最佳模型，开始训练。")
     "训练"
