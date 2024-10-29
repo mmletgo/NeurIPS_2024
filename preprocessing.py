@@ -15,12 +15,8 @@ def normalize_and_reshape_chunks(dataset_test, planet_num):
     for i in range(planet_num):
         data_test_tensor = torch.tensor(dataset_test[i]).float()
         # 先在第一维上计算最小值和最大值
-        min_first_dim = data_test_tensor.min(dim=0, keepdim=True)[0]
-        max_first_dim = data_test_tensor.max(dim=0, keepdim=True)[0]
-
-        # 再在第二维上计算最小值和最大值
-        data_min = min_first_dim.min(dim=1, keepdim=True)[0]
-        data_max = max_first_dim.max(dim=1, keepdim=True)[0]
+        data_min = data_test_tensor.min(dim=0, keepdim=True)[0]
+        data_max = data_test_tensor.max(dim=0, keepdim=True)[0]
         data_test_normalized = (data_test_tensor - data_min) / (data_max -
                                                                 data_min)
         del data_test_tensor

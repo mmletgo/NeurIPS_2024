@@ -1,10 +1,11 @@
 import torch
 import numpy as np
-from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.utils.data import DataLoader, random_split
 from torch import nn
-import os
 import pandas as pd
 import scipy.stats
+from scipy.optimize import minimize
+import pickle
 
 
 class ParticipantVisibleError(Exception):
@@ -153,13 +154,10 @@ def load_AIRS_FGS_data(AIRs_path, FGS_path):
 def normalized_reshaped(dataset):
     data_train_tensor = torch.tensor(dataset).float()
     del dataset
-    # 先在第一维上计算最小值和最大值
-    min_first_dim = data_train_tensor.min(dim=1, keepdim=True)[0]
-    max_first_dim = data_train_tensor.max(dim=1, keepdim=True)[0]
 
-    # 再在第二维上计算最小值和最大值
-    data_min = min_first_dim.min(dim=2, keepdim=True)[0]
-    data_max = max_first_dim.max(dim=2, keepdim=True)[0]
+    data_min = data_train_tensor.min(dim=1, keepdim=True)[0]
+    data_max = data_train_tensor.max(dim=1, keepdim=True)[0]
+
     data_train_normalized = (data_train_tensor - data_min) / (data_max -
                                                               data_min)
     del data_train_tensor
@@ -263,6 +261,148 @@ def train_predict(ModelClass, modelname, batch_size, train_epchos):
     dataset = load_AIRS_FGS_data(f'{data_folder}/data_train.npy',
                                  f'{data_folder}/data_train_FGS.npy')
     data_train_reshaped = normalized_reshaped(dataset)
+
+    # 目标
+    auxiliary_folder = 'input/ariel-data-challenge-2024/'
+    targets_normalized, target_min, target_max = load_traget(
+        f'{auxiliary_folder}/train_labels.csv')
+
+    # 初始化模型、损失函数和优化器
+    model = ModelClass().cuda()
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    best_val_loss = float('inf')
+    """新模型修改模型名称"""
+    try:
+        model, optimizer, best_val_loss, target_min, target_max = load_best_model(
+            model, optimizer, modelname)
+    except:
+        print("未找到最佳模型，开始训练。")
+    "训练"
+    train_fuc(data_train_reshaped,
+              targets_normalized,
+              model,
+              optimizer,
+              modelname,
+              best_val_loss,
+              train_epchos=train_epchos,
+              batch_size=batch_size,
+              target_min=target_min,
+              target_max=target_max)
+    "预测"
+    model, optimizer, best_val_loss, target_min, target_max = load_best_model(
+        model, optimizer, path='best_model_' + modelname + '.pth')
+
+    all_predictions = predict_fuc(model, data_train_reshaped, batch_size)
+    all_predictions = all_predictions * (target_max - target_min) + target_min
+    all_predictions = all_predictions.numpy()
+    np.save('predicted_targets_' + modelname + '.npy', all_predictions)
+
+
+def phase_detector(signal):
+    MIN = np.argmin(signal[30:140]) + 30  # 在索引区间 [30, 140) 中找到最小值的位置，加上偏移量 30
+    signal1 = signal[:MIN]  # 分割信号，获取前半部分
+    signal2 = signal[MIN:]  # 获取后半部分
+
+    # 计算前半部分的梯度（即一阶导数），并归一化
+    first_derivative1 = np.gradient(signal1)
+    first_derivative1 /= first_derivative1.max()
+    first_derivative2 = np.gradient(signal2)  # 计算后半部分的梯度，并归一化
+    first_derivative2 /= first_derivative2.max()
+
+    # 找到前半部分梯度的最小值位置作为 phase1
+    phase1 = np.argmin(first_derivative1)
+
+    # 找到后半部分梯度的最大值位置作为 phase2，并加上 MIN 偏移量
+    phase2 = np.argmax(first_derivative2) + MIN
+
+    # 返回两个阶段的索引
+    return phase1, phase2
+
+
+def predict_spectra(signal):
+
+    def objective_to_minimize(s):
+        delta = 2  # 用于平滑的偏移量
+        power = 3  # 多项式拟合的阶
+        x = list(range(signal.shape[0] - delta * 4))  # 拟合的 x 坐标范围
+
+        # 构建 y 坐标，信号分为三段，并对两边部分应用s的缩放
+        y = ((signal[:phase1 - delta] * (1 - s)).tolist() +
+             signal[phase1 + delta:phase2 - delta].tolist() +
+             (signal[phase2 + delta:] * (1 - s)).tolist())
+
+        # 对构建的信号 y 进行三阶多项式拟合
+        z = np.polyfit(x, y, deg=power)
+        p = np.poly1d(z)  # 将拟合结果转为多项式对象
+
+        # 计算拟合曲线与原信号之间的平均绝对误差
+        q = np.abs(p(x) - y).mean()
+        return q
+
+    # 对信号的每一列取平均值
+    signal = signal[:, 1:].mean(axis=1)
+
+    # 使用 phase_detector 函数检测两个阶段的索引
+    phase1, phase2 = phase_detector(signal)
+
+    # 使用 Nelder-Mead 优化方法最小化误差，找到最佳的缩放参数 s
+    s = minimize(fun=objective_to_minimize, x0=[0.0001],
+                 method="Nelder-Mead").x[0]
+    return s  # 返回优化后的缩放参数 s
+
+
+def predict_y(x, coefficients):
+    return np.polyval(coefficients, x)
+
+
+def cal_flux(signal):
+    delta = 2
+    signal_w = signal[:, 1:].mean(axis=1)
+    phase1, phase2 = phase_detector(signal_w)
+    alphas = []
+    for wave in range(len(signal[0])):
+        flux_dropdown_sum = 0
+        x = np.array(
+            list(range(phase1 - delta)) +
+            list(range(phase2 + delta, signal.shape[0])))
+        y = np.array(signal[:phase1 - delta, wave].tolist() +
+                     signal[phase2 + delta:, wave].tolist())
+        coefficients = np.polyfit(x, y, 3)
+        x_preditc = np.array(range(phase1, phase2 + 1))
+        high = predict_y(x_preditc, coefficients)
+        for i in range(phase2 + 1 - phase1):
+            flux_dropdown_sum += (high[i] - signal[i + phase1, wave])
+        alphas.append(flux_dropdown_sum)
+    alphas = np.array(alphas)
+    min_alpha = alphas.min()
+    max_alpha = alphas.max()
+    alphas = (alphas - min_alpha) / (max_alpha - min_alpha)
+    return alphas
+
+
+def train_predict2(ModelClass, modelname, batch_size, train_epchos):
+    "数据加载与预处理"
+    # 特征
+    with open('input/train_preprocessed.pkl', 'rb') as file:
+        predictions_spectra = pickle.load(file)
+    wave_alpha_train = np.array([
+        cal_flux(predictions_spectra[i])
+        for i in range(len(predictions_spectra))
+    ])
+    whitelight_s_train = np.array([
+        predict_spectra(predictions_spectra[i])
+        for i in range(len(predictions_spectra))
+    ])  # 预测每个星球的白光缩放比例S
+    b = 0.007255
+    a = 0.000375
+    whitelight_s_train_normalized = (whitelight_s_train - a) / (b - a)
+    whitelight_s_train_reshaped = whitelight_s_train_normalized[:, np.newaxis]
+    data_train_reshaped = np.concatenate(
+        [np.stack(wave_alpha_train),
+         np.stack(whitelight_s_train_reshaped)],
+        axis=1  # 按第 2 维度（axis=1）进行合并，以便后续一起处理
+    )
+    data_train_reshaped = torch.tensor(data_train_reshaped).float()
 
     # 目标
     auxiliary_folder = 'input/ariel-data-challenge-2024/'
