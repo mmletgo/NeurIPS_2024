@@ -25,4 +25,4 @@ if __name__ == "__main__":
     train_predict2(MLP,
                    modelname="LR_v2.0",
                    batch_size=256,
-                   train_epchos=20000)
+                   train_epochs=10000)

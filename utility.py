@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Subset
 from torch import nn
 import pandas as pd
 import scipy.stats
@@ -8,6 +8,7 @@ from scipy.optimize import minimize
 import pickle
 from sklearn.metrics import mean_squared_error
 from sklearn.cluster import KMeans
+from sklearn.model_selection import KFold
 
 
 class ParticipantVisibleError(Exception):
@@ -168,16 +169,16 @@ def normalized_reshaped(dataset):
     return data_train_normalized
 
 
-def train_fuc(data_train_reshaped,
-              targets_normalized,
-              model,
-              optimizer,
-              modelname,
-              best_val_loss,
-              train_epchos=50,
-              batch_size=16,
-              target_min=0,
-              target_max=1):
+def train_func(data_train_reshaped,
+               targets_normalized,
+               model,
+               optimizer,
+               modelname,
+               best_val_loss,
+               train_epochs=50,
+               batch_size=16,
+               target_min=0,
+               target_max=1):
 
     # 数据集拆分
     num_planets = data_train_reshaped.size(0)
@@ -198,7 +199,7 @@ def train_fuc(data_train_reshaped,
     criterion = nn.MSELoss()
     best_sigma = float('inf')
     # 训练循环
-    for epoch in range(train_epchos):
+    for epoch in range(train_epochs):
         model.train()
         train_loss = 0.0
         for batch_x, batch_y in train_loader:
@@ -270,7 +271,7 @@ def predict_fuc(model, predict_data, batch_size=1):
     return all_predictions
 
 
-def train_predict(ModelClass, modelname, batch_size, train_epchos):
+def train_predict(ModelClass, modelname, batch_size, train_epochs):
     "数据加载与预处理"
     # 特征
     data_folder = 'input/binned-dataset-v3/'
@@ -294,16 +295,16 @@ def train_predict(ModelClass, modelname, batch_size, train_epchos):
     except:
         print("未找到最佳模型，开始训练。")
     "训练"
-    train_fuc(data_train_reshaped,
-              targets_normalized,
-              model,
-              optimizer,
-              modelname,
-              best_val_loss,
-              train_epchos=train_epchos,
-              batch_size=batch_size,
-              target_min=target_min,
-              target_max=target_max)
+    train_func(data_train_reshaped,
+               targets_normalized,
+               model,
+               optimizer,
+               modelname,
+               best_val_loss,
+               train_epochs=train_epochs,
+               batch_size=batch_size,
+               target_min=target_min,
+               target_max=target_max)
     "预测"
     model, optimizer, best_val_loss, target_min, target_max = load_best_model(
         model, optimizer, path='best_model_' + modelname + '.pth')
@@ -396,7 +397,7 @@ def cal_flux(signal):
     return alphas
 
 
-def train_predict2(ModelClass, modelname, batch_size, train_epchos):
+def train_predict2(ModelClass, modelname, batch_size, train_epochs):
     "数据加载与预处理"
     # 特征
     with open('input/train_preprocessed.pkl', 'rb') as file:
@@ -475,16 +476,16 @@ def train_predict2(ModelClass, modelname, batch_size, train_epchos):
     except:
         print("未找到最佳模型，开始训练。")
     "训练"
-    train_fuc(data_train_reshaped,
-              targets_normalized,
-              model,
-              optimizer,
-              modelname,
-              best_val_loss,
-              train_epchos=train_epchos,
-              batch_size=batch_size,
-              target_min=target_min,
-              target_max=target_max)
+    train_func(data_train_reshaped,
+               targets_normalized,
+               model,
+               optimizer,
+               modelname,
+               best_val_loss,
+               train_epochs=train_epochs,
+               batch_size=batch_size,
+               target_min=target_min,
+               target_max=target_max)
     "预测"
     model, optimizer, best_val_loss, target_min, target_max = load_best_model(
         model, optimizer, path='best_model_' + modelname + '.pth')
