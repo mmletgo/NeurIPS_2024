@@ -7,6 +7,7 @@ import scipy.stats
 from scipy.optimize import minimize
 import pickle
 from sklearn.metrics import mean_squared_error
+from sklearn.cluster import KMeans
 
 
 class ParticipantVisibleError(Exception):
@@ -400,11 +401,45 @@ def train_predict2(ModelClass, modelname, batch_size, train_epchos):
     # 特征
     with open('input/train_preprocessed.pkl', 'rb') as file:
         full_predictions_spectra = pickle.load(file)
-    np.random.seed(42)
-    indices = np.random.choice(full_predictions_spectra.shape[0],
-                               320,
-                               replace=False)
-    predictions_spectra = full_predictions_spectra[indices]
+    auxiliary_folder = 'input/ariel-data-challenge-2024/'
+    train_solution = np.loadtxt(
+        '/kaggle/input/ariel-data-challenge-2024/train_labels.csv',
+        delimiter=',',
+        skiprows=1)
+
+    targets = train_solution[:, 1:]
+    flattened_labels = targets.reshape(673, -1)
+
+    # 使用 K-means 聚类
+    n_clusters = 5  # 你可以根据需要调整聚类数量
+    kmeans = KMeans(n_clusters=n_clusters,
+                    random_state=42).fit(flattened_labels)
+    cluster_labels = kmeans.labels_
+
+    np.random.seed(21)
+    # 从每个聚类中随机抽取样本
+    sampled_indices = []
+    samples_per_cluster = 320 // n_clusters  # 每个聚类中抽取的样本数量
+    for cluster in np.unique(cluster_labels):
+        cluster_indices = np.where(cluster_labels == cluster)[0]
+        if len(cluster_indices) >= samples_per_cluster:
+            sampled_indices.extend(
+                np.random.choice(cluster_indices,
+                                 samples_per_cluster,
+                                 replace=False))
+        else:
+            sampled_indices.extend(cluster_indices)  # 如果样本数量不足，全部选取
+
+    # 如果总样本数量不足 320，补充剩余的样本
+    if len(sampled_indices) < 320:
+        remaining_indices = np.setdiff1d(
+            np.arange(full_predictions_spectra.shape[0]), sampled_indices)
+        additional_samples = np.random.choice(remaining_indices,
+                                              320 - len(sampled_indices),
+                                              replace=False)
+        sampled_indices.extend(additional_samples)
+
+    predictions_spectra = full_predictions_spectra[sampled_indices]
     wave_alpha_train = np.array([
         cal_flux(predictions_spectra[i])
         for i in range(len(predictions_spectra))
@@ -427,6 +462,7 @@ def train_predict2(ModelClass, modelname, batch_size, train_epchos):
     auxiliary_folder = 'input/ariel-data-challenge-2024/'
     targets_normalized, target_min, target_max = load_traget(
         f'{auxiliary_folder}/train_labels.csv')
+    targets_normalized = targets_normalized[sampled_indices]
 
     # 初始化模型、损失函数和优化器
     model = ModelClass().cuda()

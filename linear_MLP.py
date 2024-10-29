@@ -9,22 +9,20 @@ class MLP(nn.Module):
                  output_dim=283,
                  dropout=0.1):
         super(MLP, self).__init__()
-        self.layer1 = nn.Linear(input_dim, hidden_dim)
-        self.activation = nn.ReLU()
-        self.dropout = nn.Dropout(dropout)
-        self.layer2 = nn.Linear(hidden_dim, output_dim)
+        self.mlplayer = nn.Sequential(nn.Linear(input_dim, hidden_dim),
+                                      nn.GELU(), nn.Dropout(dropout),
+                                      nn.Linear(hidden_dim, hidden_dim),
+                                      nn.GELU(), nn.Dropout(dropout),
+                                      nn.Linear(hidden_dim, output_dim),
+                                      nn.SiLU())
 
     def forward(self, x):
-        x = self.layer1(x)
-        x = self.activation(x)
-        x = self.dropout(x)
-        x = self.layer2(x)
-        return x
+        return self.mlplayer(x)
 
 
 if __name__ == "__main__":
     from utility import train_predict2
     train_predict2(MLP,
-                   modelname="LR_v1.0",
+                   modelname="LR_v2.0",
                    batch_size=256,
                    train_epchos=20000)
