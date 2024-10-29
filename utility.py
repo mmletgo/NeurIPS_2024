@@ -395,7 +395,7 @@ def train_predict2(ModelClass, modelname, batch_size, train_epochs):
     with open('input/train_preprocessed.pkl', 'rb') as file:
         full_predictions_spectra = pickle.load(file)
     train_solution = np.loadtxt(
-        '/kaggle/input/ariel-data-challenge-2024/train_labels.csv',
+        '/input/ariel-data-challenge-2024/train_labels.csv',
         delimiter=',',
         skiprows=1)
 
@@ -441,7 +441,7 @@ def train_predict2(ModelClass, modelname, batch_size, train_epochs):
     data_train_reshaped = torch.tensor(predictions_spectra).float()
     # 目标
     train_solution = np.loadtxt(
-        '/kaggle/input/ariel-data-challenge-2024/train_labels.csv',
+        '/input/ariel-data-challenge-2024/train_labels.csv',
         delimiter=',',
         skiprows=1)
 
