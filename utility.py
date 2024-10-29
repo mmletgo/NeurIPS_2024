@@ -197,7 +197,6 @@ def train_func(data_train_reshaped,
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
 
     criterion = nn.MSELoss()
-    best_sigma = float('inf')
     # 训练循环
     for epoch in range(train_epochs):
         model.train()
@@ -216,7 +215,6 @@ def train_func(data_train_reshaped,
         # 验证模型
         model.eval()
         val_loss = 0.0
-        sigma_pred = 0.0
         with torch.no_grad():
             for valid_batch_x, valid_batch_y in val_loader:
                 valid_batch_x, valid_batch_y = valid_batch_x.cuda(
@@ -229,17 +227,11 @@ def train_func(data_train_reshaped,
                 targets = valid_batch_y.cpu() * (target_max -
                                                  target_min) + target_min
                 targets = targets.numpy()
-                sigma_pred += mean_squared_error(targets,
-                                                 all_predictions,
-                                                 squared=False)
                 torch.cuda.empty_cache()  # 每次批次处理后清理显存
         val_loss /= len(val_loader)
-        sigma_pred /= len(val_loader)
-        if sigma_pred < best_sigma:
-            best_sigma = sigma_pred
 
         print(
-            f'Epoch [{epoch + 1}], Train Loss: {train_loss:.16f}, Val Loss: {val_loss:.16f}, Sigma: {sigma_pred:.16f}, Best Sigma: {best_sigma:.16f}'
+            f'Epoch [{epoch + 1}], Train Loss: {train_loss:.16f}, Val Loss: {val_loss:.16f}'
         )
         best_val_loss = save_best_model(model,
                                         optimizer,
