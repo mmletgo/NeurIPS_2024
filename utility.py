@@ -654,7 +654,14 @@ def train_predict3(ModelClass, modelname, batch_size, train_epochs):
     light_alpha_train = full_light_alpha_train[sampled_indices]
     targets_normalized = full_targets_normalized[sampled_indices]
 
-    light_alpha_train = torch.tensor(light_alpha_train).float()
+    full_whitelight_s_train_expanded = np.expand_dims(full_whitelight_s_train *
+                                                      100,
+                                                      axis=1)
+    combined_array = np.concatenate(
+        (full_light_alpha_train, full_whitelight_s_train_expanded), axis=1)
+    combined_array.shape
+
+    light_alpha_train = torch.tensor(combined_array).float()
     data_train_reshaped = torch.tensor(normalized_spectra).float()
 
     # 初始化模型、损失函数和优化器

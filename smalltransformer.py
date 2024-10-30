@@ -42,7 +42,7 @@ class SmallTransformer(nn.Module):
                  dropout=0.1):
         super(SmallTransformer, self).__init__()
         # 吸收峰面积映射为嵌入向量
-        self.peak_embedding_fc = nn.Linear(d_model_wavelength, 512)
+        self.peak_embedding_fc = nn.Linear(284, 512)
         self.expand_wavelength = nn.Conv1d(in_channels=d_model_wavelength,
                                            out_channels=512,
                                            kernel_size=1)
@@ -85,6 +85,6 @@ class SmallTransformer(nn.Module):
 if __name__ == "__main__":
     from utility import train_predict3
     train_predict3(SmallTransformer,
-                   modelname="ST_v3.2",
+                   modelname="ST_v3.3",
                    batch_size=512,
                    train_epochs=10000)
