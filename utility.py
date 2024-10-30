@@ -394,18 +394,27 @@ def train_predict2(ModelClass, modelname, batch_size, train_epochs):
     # 特征
     with open('input/train_preprocessed.pkl', 'rb') as file:
         full_predictions_spectra = pickle.load(file)
+    full_whitelight_s_train = np.array([
+        predict_spectra(full_predictions_spectra[i])
+        for i in range(len(full_predictions_spectra))
+    ])  # 预测每个星球的白光缩放比例S
+    # 目标
     train_solution = np.loadtxt(
         'input/ariel-data-challenge-2024/train_labels.csv',
         delimiter=',',
         skiprows=1)
-
     targets = train_solution[:, 1:]
-    flattened_labels = targets.reshape(673, -1)
+    newtarget = targets / full_whitelight_s_train[:, np.newaxis]
+    targets_tensor = torch.tensor(newtarget).float()
+    target_min = targets_tensor.min()
+    target_max = targets_tensor.max()
+    full_targets_normalized = (targets_tensor - target_min) / (target_max -
+                                                               target_min)
 
     # 使用 K-means 聚类
-    n_clusters = 5  # 你可以根据需要调整聚类数量
+    n_clusters = 20  # 你可以根据需要调整聚类数量
     kmeans = KMeans(n_clusters=n_clusters,
-                    random_state=42).fit(flattened_labels)
+                    random_state=42).fit(full_targets_normalized)
     cluster_labels = kmeans.labels_
 
     np.random.seed(21)
@@ -432,26 +441,10 @@ def train_predict2(ModelClass, modelname, batch_size, train_epochs):
         sampled_indices.extend(additional_samples)
 
     predictions_spectra = full_predictions_spectra[sampled_indices]
-
-    whitelight_s_train = np.array([
-        predict_spectra(predictions_spectra[i])
-        for i in range(len(predictions_spectra))
-    ])  # 预测每个星球的白光缩放比例S
+    targets_normalized = full_targets_normalized[sampled_indices]
 
     data_train_reshaped = torch.tensor(predictions_spectra).float()
-    # 目标
-    train_solution = np.loadtxt(
-        'input/ariel-data-challenge-2024/train_labels.csv',
-        delimiter=',',
-        skiprows=1)
 
-    targets = train_solution[:, 1:]
-    newtarget = targets[sampled_indices] / whitelight_s_train[:, np.newaxis]
-    targets_tensor = torch.tensor(newtarget).float()
-    target_min = targets_tensor.min()
-    target_max = targets_tensor.max()
-    targets_normalized = (targets_tensor - target_min) / (target_max -
-                                                          target_min)
     # 初始化模型、损失函数和优化器
     model = ModelClass().cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
