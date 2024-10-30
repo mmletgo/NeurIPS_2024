@@ -617,7 +617,7 @@ def train_predict3(ModelClass, modelname, batch_size, train_epochs):
                                                                target_min)
 
     # 使用 K-means 聚类
-    n_clusters = 20  # 根据需要调整聚类数量
+    n_clusters = 16  # 根据需要调整聚类数量
     kmeans = KMeans(n_clusters=n_clusters,
                     random_state=42).fit(full_targets_normalized)
     cluster_labels = kmeans.labels_
@@ -625,7 +625,7 @@ def train_predict3(ModelClass, modelname, batch_size, train_epochs):
     np.random.seed(21)
     # 初始化存储采样的索引列表
     sampled_indices = []
-    samples_per_cluster = 320 // n_clusters  # 每个聚类中目标样本数量
+    samples_per_cluster = 640 // n_clusters  # 每个聚类中目标样本数量
 
     for cluster in np.unique(cluster_labels):
         cluster_indices = np.where(cluster_labels == cluster)[0]
@@ -645,10 +645,6 @@ def train_predict3(ModelClass, modelname, batch_size, train_epochs):
                 np.random.choice(cluster_indices,
                                  samples_per_cluster,
                                  replace=False))
-
-    # 确保采样后的总样本数量为320
-    if len(sampled_indices) > 320:
-        sampled_indices = np.random.choice(sampled_indices, 320, replace=False)
 
     predictions_spectra = full_predictions_spectra[sampled_indices]
     min_values = predictions_spectra.min(axis=(1, 2), keepdims=True)
