@@ -646,11 +646,15 @@ def train_predict3(ModelClass, modelname, batch_size, train_epochs):
         sampled_indices.extend(additional_samples)
 
     predictions_spectra = full_predictions_spectra[sampled_indices]
+    min_values = predictions_spectra.min(axis=(1, 2), keepdims=True)
+    max_values = predictions_spectra.max(axis=(1, 2), keepdims=True)
+    normalized_spectra = (predictions_spectra - min_values) / (max_values -
+                                                               min_values)
     light_alpha_train = full_light_alpha_train[sampled_indices]
     targets_normalized = full_targets_normalized[sampled_indices]
 
     light_alpha_train = torch.tensor(light_alpha_train).float()
-    data_train_reshaped = torch.tensor(predictions_spectra).float()
+    data_train_reshaped = torch.tensor(normalized_spectra).float()
 
     # 初始化模型、损失函数和优化器
     model = ModelClass().cuda()
