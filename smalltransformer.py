@@ -41,7 +41,8 @@ class SmallTransformer(nn.Module):
                  num_layers=4,
                  dropout=0.1):
         super(SmallTransformer, self).__init__()
-
+        # 吸收峰面积映射为嵌入向量
+        self.peak_embedding_fc = nn.Linear(d_model_wavelength, 512)
         self.expand_wavelength = nn.Conv1d(in_channels=d_model_wavelength,
                                            out_channels=512,
                                            kernel_size=1)
@@ -61,11 +62,18 @@ class SmallTransformer(nn.Module):
         self.output_layer = MLP(512, 256, 283,
                                 dropout=0.1)  # 输出 (batch_size, 283)
 
-    def forward(self, x):
+    def forward(self, x, peak_areas):
         # batch_size, seq_len, num_wavelengths = x.size()
+        peak_embed = self.peak_embedding_fc(peak_areas)  # (batch_size, 512)
+        peak_embed = peak_embed.unsqueeze(1)  # (batch_size, 1, 512)
+
         x = x.permute(0, 2, 1)  # (batch_size, num_wavelengths, seq_len)
         x = self.expand_wavelength(x)  # (batch_size, 512, seq_len)
         x = x.permute(0, 2, 1)
+
+        # 将吸收峰面积嵌入与光通量数据融合
+        x = x + peak_embed  # 广播加法
+
         x = self.time_peak_transformer(x)  # (batch_size, seq_len, 512)
         x = self.attention_pooling(x)  # (batch_size, 512)
         # print(x.size())
@@ -75,8 +83,8 @@ class SmallTransformer(nn.Module):
 
 
 if __name__ == "__main__":
-    from utility import train_predict2
-    train_predict2(SmallTransformer,
-                   modelname="ST_v2.0",
+    from utility import train_predict3
+    train_predict3(SmallTransformer,
+                   modelname="ST_v3.0",
                    batch_size=256,
                    train_epochs=1000)
