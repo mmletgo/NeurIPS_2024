@@ -617,33 +617,38 @@ def train_predict3(ModelClass, modelname, batch_size, train_epochs):
                                                                target_min)
 
     # 使用 K-means 聚类
-    n_clusters = 20  # 你可以根据需要调整聚类数量
+    n_clusters = 20  # 根据需要调整聚类数量
     kmeans = KMeans(n_clusters=n_clusters,
                     random_state=42).fit(full_targets_normalized)
     cluster_labels = kmeans.labels_
 
     np.random.seed(21)
-    # 从每个聚类中随机抽取样本
+    # 初始化存储采样的索引列表
     sampled_indices = []
-    samples_per_cluster = 320 // n_clusters  # 每个聚类中抽取的样本数量
+    samples_per_cluster = 320 // n_clusters  # 每个聚类中目标样本数量
+
     for cluster in np.unique(cluster_labels):
         cluster_indices = np.where(cluster_labels == cluster)[0]
-        if len(cluster_indices) >= samples_per_cluster:
+
+        # 如果样本数量不足，则进行上采样
+        if len(cluster_indices) < samples_per_cluster:
+            temp_samples = cluster_indices.tolist()
+            sampled_indices.extend(temp_samples)
+            remaining_samples = samples_per_cluster - len(cluster_indices)
+            sampled_indices.extend(
+                np.random.choice(cluster_indices,
+                                 remaining_samples,
+                                 replace=True))
+        else:
+            # 样本数量充足时正常采样
             sampled_indices.extend(
                 np.random.choice(cluster_indices,
                                  samples_per_cluster,
                                  replace=False))
-        else:
-            sampled_indices.extend(cluster_indices)  # 如果样本数量不足，全部选取
 
-    # 如果总样本数量不足 320，补充剩余的样本
-    if len(sampled_indices) < 320:
-        remaining_indices = np.setdiff1d(
-            np.arange(full_predictions_spectra.shape[0]), sampled_indices)
-        additional_samples = np.random.choice(remaining_indices,
-                                              320 - len(sampled_indices),
-                                              replace=False)
-        sampled_indices.extend(additional_samples)
+    # 确保采样后的总样本数量为320
+    if len(sampled_indices) > 320:
+        sampled_indices = np.random.choice(sampled_indices, 320, replace=False)
 
     predictions_spectra = full_predictions_spectra[sampled_indices]
     min_values = predictions_spectra.min(axis=(1, 2), keepdims=True)
