@@ -391,7 +391,7 @@ def train_func_2input_2out(data_train_reshaped,
             optimizer.zero_grad()
 
             # 将两个输入传递给模型
-            mean, sigma = model(batch_x, batch_peak).squeeze(-1)
+            mean, sigma = model(batch_x, batch_peak)
             loss = criterion(mean, sigma, batch_y)
             loss.backward()
             optimizer.step()
@@ -412,7 +412,7 @@ def train_func_2input_2out(data_train_reshaped,
 
                 # 验证时也传递两个输入
                 valid_mean, valid_sigma = model(valid_batch_x,
-                                                valid_batch_peak).squeeze(-1)
+                                                valid_batch_peak)
                 val_loss += criterion(valid_mean, valid_sigma,
                                       valid_batch_y).item()
                 torch.cuda.empty_cache()
