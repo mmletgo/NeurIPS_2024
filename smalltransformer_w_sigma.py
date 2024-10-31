@@ -88,6 +88,6 @@ class SmallTransformer(nn.Module):
 if __name__ == "__main__":
     from utility import train_predict4
     train_predict4(SmallTransformer,
-                   modelname="STws_v3.4",
+                   modelname="STws_v3.5",
                    batch_size=512,
                    train_epochs=10000)
