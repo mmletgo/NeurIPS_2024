@@ -336,20 +336,33 @@ def train_func_2input(data_train_reshaped,
     print("训练完成")
 
 
+# class GaussianNLLLoss(nn.Module):
+
+#     def __init__(self, sigma_reg=1e-3):
+#         super(GaussianNLLLoss, self).__init__()
+#         self.sigma_reg = sigma_reg
+
+#     def forward(self, mean, sigma, target):
+#         # 防止sigma过小导致数值不稳定
+#         sigma = torch.clamp(sigma, min=1e-3)
+#         nll = 0.5 * torch.log(
+#             2 * torch.pi * sigma**2) + (target - mean)**2 / (2 * sigma**2)
+#         # 正则化项，防止sigma无限趋近于0
+#         reg_loss = self.sigma_reg * torch.mean(1.0 / sigma)
+#         return torch.mean(nll) + reg_loss  # 返回批次的平均NLL
+
+
 class GaussianNLLLoss(nn.Module):
 
-    def __init__(self, sigma_reg=1e-3):
+    def __init__(self):
         super(GaussianNLLLoss, self).__init__()
-        self.sigma_reg = sigma_reg
 
     def forward(self, mean, sigma, target):
         # 防止sigma过小导致数值不稳定
         sigma = torch.clamp(sigma, min=1e-3)
         nll = 0.5 * torch.log(
             2 * torch.pi * sigma**2) + (target - mean)**2 / (2 * sigma**2)
-        # 正则化项，防止sigma无限趋近于0
-        reg_loss = self.sigma_reg * torch.mean(1.0 / sigma)
-        return torch.mean(nll) + reg_loss  # 返回批次的平均NLL
+        return torch.mean(nll)  # 返回批次的平均NLL
 
 
 def train_func_2input_2out(data_train_reshaped,
