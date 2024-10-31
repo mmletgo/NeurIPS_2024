@@ -467,6 +467,33 @@ def predict_func_2input(model, predict_data_x, peak_areas, batch_size=1):
     return all_predictions
 
 
+def predict_func_2input_2out(model, predict_data_x, peak_areas, batch_size=1):
+    with torch.no_grad():
+        model.eval()
+        meanlist = []
+        sigmalist = []
+
+        # 遍历数据集，按批次进行预测
+        for i in range(0, predict_data_x.size(0), batch_size):
+            batch_x = predict_data_x[i:i + batch_size].cuda()
+            batch_peak = peak_areas[i:i + batch_size].cuda()
+
+            # 将两个输入传递给模型
+            mean, sigma = model(batch_x, batch_peak)
+            mean = mean.cpu().numpy()
+            sigma = sigma.cpu().numpy()
+            meanlist.append(mean)
+            sigmalist.append(sigma)
+
+            torch.cuda.empty_cache()  # 每次批次处理后清理显存
+
+        # 合并所有批次的预测结果
+        mean_predictions = torch.tensor(np.concatenate(meanlist, axis=0))
+        sigma_predictions = torch.tensor(np.concatenate(sigmalist, axis=0))
+
+    return mean_predictions, sigma_predictions
+
+
 def predict_fuc(model, predict_data, batch_size=1):
 
     with torch.no_grad():
