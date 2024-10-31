@@ -79,8 +79,8 @@ class SmallTransformer(nn.Module):
         x = self.attention_pooling(x)  # (batch_size, 512)
         # print(x.size())
         mean = self.mean_out(x)
-        sigma = self.sigma_out(x)
-
+        log_sigma = self.sigma_out(x)
+        sigma = torch.exp(log_sigma)
         # 最终输出层：预测吸收峰值
         return mean, sigma
 
