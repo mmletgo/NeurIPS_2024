@@ -343,7 +343,7 @@ class GaussianNLLLoss(nn.Module):
 
     def forward(self, mean, sigma, target):
         # 防止sigma过小导致数值不稳定
-        sigma = torch.clamp(sigma, min=1e-5)
+        sigma = torch.clamp(sigma, min=1e-4)
         nll = 0.5 * torch.log(
             2 * torch.pi * sigma**2) + (target - mean)**2 / (2 * sigma**2)
         return torch.mean(nll)  # 返回批次的平均NLL
