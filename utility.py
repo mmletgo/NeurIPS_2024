@@ -381,12 +381,13 @@ def train_func_2input_2out(data_train_reshaped,
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
 
-    criterion = GaussianNLLLoss()
-
+    nll_criterion = GaussianNLLLoss()
+    mse_criterion = nn.MSELoss()  # 用于评估均值预测的误差
     # 训练循环
     for epoch in range(train_epochs):
         model.train()
-        train_loss = 0.0
+        train_nll_loss = 0.0
+        train_mse_loss = 0.0
 
         for batch_x, batch_peak, batch_y in train_loader:
             batch_x, batch_peak, batch_y = (batch_x.cuda(), batch_peak.cuda(),
@@ -395,17 +396,21 @@ def train_func_2input_2out(data_train_reshaped,
 
             # 将两个输入传递给模型
             mean, sigma = model(batch_x, batch_peak)
-            loss = criterion(mean, sigma, batch_y)
-            loss.backward()
+            nll_loss = nll_criterion(mean, sigma, batch_y)
+            mse_loss = mse_criterion(mean, batch_y)
+            nll_loss.backward()
             optimizer.step()
-            train_loss += loss.item()
+            train_nll_loss += nll_loss.item()
+            train_mse_loss += mse_loss.item()
             torch.cuda.empty_cache()
 
-        train_loss /= len(train_loader)
+        train_nll_loss /= len(train_loader)
+        train_mse_loss /= len(train_loader)
 
         # 验证模型
         model.eval()
-        val_loss = 0.0
+        val_nll_loss = 0.0
+        val_mse_loss = 0.0
 
         with torch.no_grad():
             for valid_batch_x, valid_batch_peak, valid_batch_y in val_loader:
@@ -416,19 +421,22 @@ def train_func_2input_2out(data_train_reshaped,
                 # 验证时也传递两个输入
                 valid_mean, valid_sigma = model(valid_batch_x,
                                                 valid_batch_peak)
-                val_loss += criterion(valid_mean, valid_sigma,
-                                      valid_batch_y).item()
+                val_nll_loss += nll_criterion(valid_mean, valid_sigma,
+                                              valid_batch_y).item()
+                val_mse_loss += mse_criterion(valid_mean, valid_batch_y).item()
+
                 torch.cuda.empty_cache()
 
-        val_loss /= len(val_loader)
+        val_nll_loss /= len(val_loader)
+        val_mse_loss /= len(val_loader)
 
         print(
-            f'Epoch [{epoch + 1}], Train Loss: {train_loss:.16f}, Val Loss: {val_loss:.16f}'
+            f'Epoch [{epoch + 1}], Train nll Loss: {train_nll_loss:.16f}, Val nll Loss: {val_nll_loss:.16f}, Train mse Loss: {train_mse_loss:.16f}, Val mse Loss: {val_mse_loss:.16f}'
         )
 
         best_val_loss = save_best_model(model,
                                         optimizer,
-                                        val_loss,
+                                        val_nll_loss,
                                         best_val_loss,
                                         path=f'best_model_{modelname}.pth',
                                         target_min=target_min,
