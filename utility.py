@@ -1,14 +1,15 @@
 import torch
 import numpy as np
-from torch.utils.data import DataLoader, random_split, Subset
+from torch.utils.data import DataLoader, random_split
 from torch import nn
 import pandas as pd
 import scipy.stats
 from scipy.optimize import minimize
 import pickle
-from sklearn.metrics import mean_squared_error
 from sklearn.cluster import KMeans
-from sklearn.model_selection import KFold
+"""
+计算比赛分数，上传预处理
+"""
 
 
 class ParticipantVisibleError(Exception):
@@ -77,12 +78,12 @@ def competition_score(
 
 def postprocessing(pred_array, wavelengths, index, sigma_pred):
     """Create a submission dataframe from its components
-    
+
     Parameters:
     pred_array: ndarray of shape (n_samples, 283)
     index: pandas.Index of length n_samples with name 'planet_id'
     sigma_pred: float
-    
+
     Return value:
     df: DataFrame of shape (n_samples, 566) with planet_id as index
     """
@@ -95,6 +96,12 @@ def postprocessing(pred_array, wavelengths, index, sigma_pred):
                      columns=[f"sigma_{i}" for i in range(1, 284)])
     ],
                      axis=1)
+
+
+"---------------------------------------------------------------------------------"
+"""
+训练函数
+"""
 
 
 # 保存与加载模型函数
@@ -119,54 +126,6 @@ def save_best_model(
         print(f"New best model saved with val_loss: {val_loss:.16f}")
         return val_loss
     return best_val_loss
-
-
-def load_best_model(model, optimizer, path='best_model.pth'):
-    checkpoint = torch.load(path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    best_val_loss = checkpoint['best_val_loss']
-    target_min = checkpoint['target_min']
-    target_max = checkpoint['target_max']
-    print("Best model loaded.")
-    return model, optimizer, best_val_loss, target_min, target_max
-
-
-def load_traget(target_path):
-    train_solution = np.loadtxt(target_path, delimiter=',', skiprows=1)
-    targets = train_solution[:, 1:]
-    targets_tensor = torch.tensor(targets).float()
-    target_min = targets_tensor.min()
-    target_max = targets_tensor.max()
-    targets_normalized = (targets_tensor - target_min) / (target_max -
-                                                          target_min)
-    return targets_normalized, target_min, target_max
-
-
-def load_AIRS_FGS_data(AIRs_path, FGS_path):
-    signal_AIRS = np.load(AIRs_path)
-    signal_FGS = np.load(FGS_path)
-    FGS_column = signal_FGS.sum(axis=2)
-    del signal_FGS
-    dataset = np.concatenate([FGS_column[:, :, np.newaxis, :], signal_AIRS],
-                             axis=2)
-    del signal_AIRS, FGS_column
-    return dataset
-
-
-def normalized_reshaped(dataset):
-    data_train_tensor = torch.tensor(dataset).float()
-    del dataset
-
-    data_min = data_train_tensor.min(dim=1, keepdim=True)[0]
-    data_max = data_train_tensor.max(dim=1, keepdim=True)[0]
-
-    data_train_normalized = (data_train_tensor - data_min) / (data_max -
-                                                              data_min)
-    del data_train_tensor
-    data_train_normalized = data_train_normalized.permute(0, 2, 1, 3)
-
-    return data_train_normalized
 
 
 def train_func(data_train_reshaped,
@@ -458,75 +417,61 @@ def train_func_2input_2out(data_train_reshaped,
     print("训练完成")
 
 
-def predict_func_2input(model, predict_data_x, peak_areas, batch_size=1):
-    with torch.no_grad():
-        model.eval()
-        results = []
-
-        # 遍历数据集，按批次进行预测
-        for i in range(0, predict_data_x.size(0), batch_size):
-            batch_x = predict_data_x[i:i + batch_size].cuda()
-            batch_peak = peak_areas[i:i + batch_size].cuda()
-
-            # 将两个输入传递给模型
-            output = model(batch_x, batch_peak).cpu().numpy()
-            results.append(output)
-
-            torch.cuda.empty_cache()  # 每次批次处理后清理显存
-
-        # 合并所有批次的预测结果
-        all_predictions = torch.tensor(np.concatenate(results, axis=0))
-
-    return all_predictions
+"---------------------------------------------------------------------------------"
+"""
+训练工具函数
+"""
 
 
-def predict_func_2input_2out(model, predict_data_x, peak_areas, batch_size=1):
-    with torch.no_grad():
-        model.eval()
-        meanlist = []
-        sigmalist = []
-
-        # 遍历数据集，按批次进行预测
-        for i in range(0, predict_data_x.size(0), batch_size):
-            batch_x = predict_data_x[i:i + batch_size].cuda()
-            batch_peak = peak_areas[i:i + batch_size].cuda()
-
-            # 将两个输入传递给模型
-            mean, sigma = model(batch_x, batch_peak)
-            mean = mean.cpu().numpy()
-            sigma = sigma.cpu().numpy()
-            meanlist.append(mean)
-            sigmalist.append(sigma)
-
-            torch.cuda.empty_cache()  # 每次批次处理后清理显存
-
-        # 合并所有批次的预测结果
-        mean_predictions = torch.tensor(np.concatenate(meanlist, axis=0))
-        sigma_predictions = torch.tensor(np.concatenate(sigmalist, axis=0))
-
-    return mean_predictions, sigma_predictions
+def load_best_model(model, optimizer, path='best_model.pth'):
+    checkpoint = torch.load(path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    best_val_loss = checkpoint['best_val_loss']
+    target_min = checkpoint['target_min']
+    target_max = checkpoint['target_max']
+    print("Best model loaded.")
+    return model, optimizer, best_val_loss, target_min, target_max
 
 
-def predict_fuc(model, predict_data, batch_size=1):
-
-    with torch.no_grad():
-        model.eval()
-        results = []
-
-        for i in range(0, predict_data.size(0), batch_size):
-            batch = predict_data[i:i + batch_size].cuda()
-            output = model(batch).cpu().numpy()
-            results.append(output)
-
-            torch.cuda.empty_cache()  # 每次批次处理后清理显存
-
-        # 合并所有批次结果
-        all_predictions = torch.tensor(np.concatenate(results, axis=0))
-
-    return all_predictions
+def load_traget(target_path):
+    train_solution = np.loadtxt(target_path, delimiter=',', skiprows=1)
+    targets = train_solution[:, 1:]
+    targets_tensor = torch.tensor(targets).float()
+    target_min = targets_tensor.min()
+    target_max = targets_tensor.max()
+    targets_normalized = (targets_tensor - target_min) / (target_max -
+                                                          target_min)
+    return targets_normalized, target_min, target_max
 
 
-def train_predict(ModelClass, modelname, batch_size, train_epochs):
+def load_AIRS_FGS_data(AIRs_path, FGS_path):
+    signal_AIRS = np.load(AIRs_path)
+    signal_FGS = np.load(FGS_path)
+    FGS_column = signal_FGS.sum(axis=2)
+    del signal_FGS
+    dataset = np.concatenate([FGS_column[:, :, np.newaxis, :], signal_AIRS],
+                             axis=2)
+    del signal_AIRS, FGS_column
+    return dataset
+
+
+def normalized_reshaped(dataset):
+    data_train_tensor = torch.tensor(dataset).float()
+    del dataset
+
+    data_min = data_train_tensor.min(dim=1, keepdim=True)[0]
+    data_max = data_train_tensor.max(dim=1, keepdim=True)[0]
+
+    data_train_normalized = (data_train_tensor - data_min) / (data_max -
+                                                              data_min)
+    del data_train_tensor
+    data_train_normalized = data_train_normalized.permute(0, 2, 1, 3)
+
+    return data_train_normalized
+
+
+def load_features_and_targets2():
     "数据加载与预处理"
     # 特征
     data_folder = 'input/binned-dataset-v3/'
@@ -538,36 +483,7 @@ def train_predict(ModelClass, modelname, batch_size, train_epochs):
     auxiliary_folder = 'input/ariel-data-challenge-2024/'
     targets_normalized, target_min, target_max = load_traget(
         f'{auxiliary_folder}/train_labels.csv')
-
-    # 初始化模型、损失函数和优化器
-    model = ModelClass().cuda()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    best_val_loss = float('inf')
-    """新模型修改模型名称"""
-    try:
-        model, optimizer, best_val_loss, target_min, target_max = load_best_model(
-            model, optimizer, path='best_model_' + modelname + '.pth')
-    except:
-        print("未找到最佳模型，开始训练。")
-    "训练"
-    train_func(data_train_reshaped,
-               targets_normalized,
-               model,
-               optimizer,
-               modelname,
-               best_val_loss,
-               train_epochs=train_epochs,
-               batch_size=batch_size,
-               target_min=target_min,
-               target_max=target_max)
-    "预测"
-    model, optimizer, best_val_loss, target_min, target_max = load_best_model(
-        model, optimizer, path='best_model_' + modelname + '.pth')
-
-    all_predictions = predict_fuc(model, data_train_reshaped, batch_size)
-    all_predictions = all_predictions * (target_max - target_min) + target_min
-    all_predictions = all_predictions.numpy()
-    np.save('predicted_targets_' + modelname + '.npy', all_predictions)
+    return data_train_reshaped, targets_normalized, target_min, target_max
 
 
 def phase_detector(signal):
@@ -652,15 +568,19 @@ def cal_flux(signal):
     return alphas
 
 
-def train_predict2(ModelClass, modelname, batch_size, train_epochs):
+def load_features_and_targets():
     "数据加载与预处理"
     # 特征
-    with open('input/train_preprocessed.pkl', 'rb') as file:
+    with open('train_preprocessed.pkl', 'rb') as file:
         full_predictions_spectra = pickle.load(file)
     full_whitelight_s_train = np.array([
         predict_spectra(full_predictions_spectra[i])
         for i in range(len(full_predictions_spectra))
     ])  # 预测每个星球的白光缩放比例S
+    full_light_alpha_train = np.array([
+        cal_flux(full_predictions_spectra[i])
+        for i in range(len(full_predictions_spectra))
+    ])  # 计算每个星球的各个波段的吸收峰相对面积
     # 目标
     train_solution = np.loadtxt(
         'input/ariel-data-challenge-2024/train_labels.csv',
@@ -673,7 +593,43 @@ def train_predict2(ModelClass, modelname, batch_size, train_epochs):
     target_max = targets_tensor.max()
     full_targets_normalized = (targets_tensor - target_min) / (target_max -
                                                                target_min)
+    return full_predictions_spectra, full_whitelight_s_train, full_light_alpha_train, full_targets_normalized, target_min, target_max
 
+
+def sample_data(full_targets_normalized):
+    # 使用 K-means 聚类
+    n_clusters = 16  # 根据需要调整聚类数量
+    kmeans = KMeans(n_clusters=n_clusters,
+                    random_state=42).fit(full_targets_normalized)
+    cluster_labels = kmeans.labels_
+
+    np.random.seed(21)
+    # 初始化存储采样的索引列表
+    sampled_indices = []
+    samples_per_cluster = 640 // n_clusters  # 每个聚类中目标样本数量
+
+    for cluster in np.unique(cluster_labels):
+        cluster_indices = np.where(cluster_labels == cluster)[0]
+
+        # 如果样本数量不足，则进行上采样
+        if len(cluster_indices) < samples_per_cluster:
+            temp_samples = cluster_indices.tolist()
+            sampled_indices.extend(temp_samples)
+            remaining_samples = samples_per_cluster - len(cluster_indices)
+            sampled_indices.extend(
+                np.random.choice(cluster_indices,
+                                 remaining_samples,
+                                 replace=True))
+        else:
+            # 样本数量充足时正常采样
+            sampled_indices.extend(
+                np.random.choice(cluster_indices,
+                                 samples_per_cluster,
+                                 replace=False))
+    return sampled_indices
+
+
+def sample_data2(full_targets_normalized, full_predictions_spectra):
     # 使用 K-means 聚类
     n_clusters = 20  # 你可以根据需要调整聚类数量
     kmeans = KMeans(n_clusters=n_clusters,
@@ -703,11 +659,10 @@ def train_predict2(ModelClass, modelname, batch_size, train_epochs):
                                               replace=False)
         sampled_indices.extend(additional_samples)
 
-    predictions_spectra = full_predictions_spectra[sampled_indices]
-    targets_normalized = full_targets_normalized[sampled_indices]
+    return sampled_indices
 
-    data_train_reshaped = torch.tensor(predictions_spectra).float()
 
+def process_model(ModelClass, modelname):
     # 初始化模型、损失函数和优化器
     model = ModelClass().cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
@@ -718,83 +673,12 @@ def train_predict2(ModelClass, modelname, batch_size, train_epochs):
             model, optimizer, path='best_model_' + modelname + '.pth')
     except:
         print("未找到最佳模型，开始训练。")
-    "训练"
-    train_func(data_train_reshaped,
-               targets_normalized,
-               model,
-               optimizer,
-               modelname,
-               best_val_loss,
-               train_epochs=train_epochs,
-               batch_size=batch_size,
-               target_min=target_min,
-               target_max=target_max)
-    "预测"
-    model, optimizer, best_val_loss, target_min, target_max = load_best_model(
-        model, optimizer, path='best_model_' + modelname + '.pth')
-
-    all_predictions = predict_fuc(model, data_train_reshaped, batch_size)
-    all_predictions = all_predictions * (target_max - target_min) + target_min
-    all_predictions = all_predictions.numpy()
-    np.save('predicted_targets_' + modelname + '.npy', all_predictions)
+    return model, optimizer, best_val_loss, target_min, target_max
 
 
-def train_predict3(ModelClass, modelname, batch_size, train_epochs):
-    "数据加载与预处理"
-    # 特征
-    with open('input/train_preprocessed.pkl', 'rb') as file:
-        full_predictions_spectra = pickle.load(file)
-    full_whitelight_s_train = np.array([
-        predict_spectra(full_predictions_spectra[i])
-        for i in range(len(full_predictions_spectra))
-    ])  # 预测每个星球的白光缩放比例S
-    full_light_alpha_train = np.array([
-        cal_flux(full_predictions_spectra[i])
-        for i in range(len(full_predictions_spectra))
-    ])  # 计算每个星球的各个波段的吸收峰相对面积
-    # 目标
-    train_solution = np.loadtxt(
-        'input/ariel-data-challenge-2024/train_labels.csv',
-        delimiter=',',
-        skiprows=1)
-    targets = train_solution[:, 1:]
-    newtarget = targets / full_whitelight_s_train[:, np.newaxis]
-    targets_tensor = torch.tensor(newtarget).float()
-    target_min = targets_tensor.min()
-    target_max = targets_tensor.max()
-    full_targets_normalized = (targets_tensor - target_min) / (target_max -
-                                                               target_min)
-
-    # 使用 K-means 聚类
-    n_clusters = 16  # 根据需要调整聚类数量
-    kmeans = KMeans(n_clusters=n_clusters,
-                    random_state=42).fit(full_targets_normalized)
-    cluster_labels = kmeans.labels_
-
-    np.random.seed(21)
-    # 初始化存储采样的索引列表
-    sampled_indices = []
-    samples_per_cluster = 640 // n_clusters  # 每个聚类中目标样本数量
-
-    for cluster in np.unique(cluster_labels):
-        cluster_indices = np.where(cluster_labels == cluster)[0]
-
-        # 如果样本数量不足，则进行上采样
-        if len(cluster_indices) < samples_per_cluster:
-            temp_samples = cluster_indices.tolist()
-            sampled_indices.extend(temp_samples)
-            remaining_samples = samples_per_cluster - len(cluster_indices)
-            sampled_indices.extend(
-                np.random.choice(cluster_indices,
-                                 remaining_samples,
-                                 replace=True))
-        else:
-            # 样本数量充足时正常采样
-            sampled_indices.extend(
-                np.random.choice(cluster_indices,
-                                 samples_per_cluster,
-                                 replace=False))
-
+def process_inputdata(full_predictions_spectra, full_whitelight_s_train,
+                      full_light_alpha_train, full_targets_normalized,
+                      sampled_indices):
     predictions_spectra = full_predictions_spectra[sampled_indices]
     min_values = predictions_spectra.min(axis=(1, 2), keepdims=True)
     max_values = predictions_spectra.max(axis=(1, 2), keepdims=True)
@@ -808,21 +692,152 @@ def train_predict3(ModelClass, modelname, batch_size, train_epochs):
                                                  axis=1)
     combined_array = np.concatenate(
         (light_alpha_train, whitelight_s_train_expanded), axis=1)
-    combined_array.shape
 
     light_alpha_train = torch.tensor(combined_array).float()
     data_train_reshaped = torch.tensor(normalized_spectra).float()
+    return data_train_reshaped, light_alpha_train, targets_normalized
 
-    # 初始化模型、损失函数和优化器
-    model = ModelClass().cuda()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    best_val_loss = float('inf')
-    """新模型修改模型名称"""
-    try:
-        model, optimizer, best_val_loss, target_min, target_max = load_best_model(
-            model, optimizer, path='best_model_' + modelname + '.pth')
-    except:
-        print("未找到最佳模型，开始训练。")
+
+"---------------------------------------------------------------------------------"
+"""
+预测函数
+"""
+
+
+def predict_func_2input(model, predict_data_x, peak_areas, batch_size=1):
+    with torch.no_grad():
+        model.eval()
+        results = []
+
+        # 遍历数据集，按批次进行预测
+        for i in range(0, predict_data_x.size(0), batch_size):
+            batch_x = predict_data_x[i:i + batch_size].cuda()
+            batch_peak = peak_areas[i:i + batch_size].cuda()
+
+            # 将两个输入传递给模型
+            output = model(batch_x, batch_peak).cpu().numpy()
+            results.append(output)
+
+            torch.cuda.empty_cache()  # 每次批次处理后清理显存
+
+        # 合并所有批次的预测结果
+        all_predictions = torch.tensor(np.concatenate(results, axis=0))
+
+    return all_predictions
+
+
+def predict_func_2input_2out(model, predict_data_x, peak_areas, batch_size=1):
+    with torch.no_grad():
+        model.eval()
+        meanlist = []
+        sigmalist = []
+
+        # 遍历数据集，按批次进行预测
+        for i in range(0, predict_data_x.size(0), batch_size):
+            batch_x = predict_data_x[i:i + batch_size].cuda()
+            batch_peak = peak_areas[i:i + batch_size].cuda()
+
+            # 将两个输入传递给模型
+            mean, sigma = model(batch_x, batch_peak)
+            mean = mean.cpu().numpy()
+            sigma = sigma.cpu().numpy()
+            meanlist.append(mean)
+            sigmalist.append(sigma)
+
+            torch.cuda.empty_cache()  # 每次批次处理后清理显存
+
+        # 合并所有批次的预测结果
+        mean_predictions = torch.tensor(np.concatenate(meanlist, axis=0))
+        sigma_predictions = torch.tensor(np.concatenate(sigmalist, axis=0))
+
+    return mean_predictions, sigma_predictions
+
+
+def predict_fuc(model, predict_data, batch_size=1):
+
+    with torch.no_grad():
+        model.eval()
+        results = []
+
+        for i in range(0, predict_data.size(0), batch_size):
+            batch = predict_data[i:i + batch_size].cuda()
+            output = model(batch).cpu().numpy()
+            results.append(output)
+
+            torch.cuda.empty_cache()  # 每次批次处理后清理显存
+
+        # 合并所有批次结果
+        all_predictions = torch.tensor(np.concatenate(results, axis=0))
+
+    return all_predictions
+
+
+"---------------------------------------------------------------------------------"
+"""
+训练流程函数
+"""
+
+
+def train_predict(ModelClass, modelname, batch_size, train_epochs):
+    "数据加载与预处理"
+    data_train_reshaped, targets_normalized, target_min, target_max = load_features_and_targets2(
+    )
+    "初始化模型、损失函数和优化器"
+    model, optimizer, best_val_loss, target_min, target_max = process_model(
+        ModelClass, modelname)
+    "训练"
+    train_func(data_train_reshaped,
+               targets_normalized,
+               model,
+               optimizer,
+               modelname,
+               best_val_loss,
+               train_epochs=train_epochs,
+               batch_size=batch_size,
+               target_min=target_min,
+               target_max=target_max)
+
+
+def train_predict2(ModelClass, modelname, batch_size, train_epochs):
+    "数据加载与预处理"
+    full_predictions_spectra, full_whitelight_s_train, full_light_alpha_train, full_targets_normalized, target_min, target_max = load_features_and_targets(
+    )
+    "采样"
+    sampled_indices = sample_data2(full_targets_normalized,
+                                   full_predictions_spectra)
+    "输入数据处理"
+    predictions_spectra = full_predictions_spectra[sampled_indices]
+    targets_normalized = full_targets_normalized[sampled_indices]
+    data_train_reshaped = torch.tensor(predictions_spectra).float()
+    "初始化模型、损失函数和优化器"
+    model, optimizer, best_val_loss, target_min, target_max = process_model(
+        ModelClass, modelname)
+    "训练"
+    train_func(data_train_reshaped,
+               targets_normalized,
+               model,
+               optimizer,
+               modelname,
+               best_val_loss,
+               train_epochs=train_epochs,
+               batch_size=batch_size,
+               target_min=target_min,
+               target_max=target_max)
+
+
+def train_predict3(ModelClass, modelname, batch_size, train_epochs):
+    "数据加载与预处理"
+    full_predictions_spectra, full_whitelight_s_train, full_light_alpha_train, full_targets_normalized, target_min, target_max = load_features_and_targets(
+    )
+    "采样"
+    sampled_indices = sample_data(full_targets_normalized)
+    "输入数据处理"
+    data_train_reshaped, light_alpha_train, targets_normalized = process_inputdata(
+        full_predictions_spectra, full_whitelight_s_train,
+        full_light_alpha_train, full_targets_normalized, sampled_indices)
+    "初始化模型、损失函数和优化器"
+    model, optimizer, best_val_loss, target_min, target_max = process_model(
+        ModelClass, modelname)
     "训练"
     train_func_2input(data_train_reshaped,
                       light_alpha_train,
@@ -835,101 +850,21 @@ def train_predict3(ModelClass, modelname, batch_size, train_epochs):
                       batch_size=batch_size,
                       target_min=target_min,
                       target_max=target_max)
-    "预测"
-    model, optimizer, best_val_loss, target_min, target_max = load_best_model(
-        model, optimizer, path='best_model_' + modelname + '.pth')
-
-    all_predictions = predict_func_2input(model, data_train_reshaped,
-                                          light_alpha_train, batch_size)
-    all_predictions = all_predictions * (target_max - target_min) + target_min
-    all_predictions = all_predictions.numpy()
-    np.save('predicted_targets_' + modelname + '.npy', all_predictions)
 
 
 def train_predict4(ModelClass, modelname, batch_size, train_epochs):
     "数据加载与预处理"
-    # 特征
-    with open('input/train_preprocessed.pkl', 'rb') as file:
-        full_predictions_spectra = pickle.load(file)
-    full_whitelight_s_train = np.array([
-        predict_spectra(full_predictions_spectra[i])
-        for i in range(len(full_predictions_spectra))
-    ])  # 预测每个星球的白光缩放比例S
-    full_light_alpha_train = np.array([
-        cal_flux(full_predictions_spectra[i])
-        for i in range(len(full_predictions_spectra))
-    ])  # 计算每个星球的各个波段的吸收峰相对面积
-    # 目标
-    train_solution = np.loadtxt(
-        'input/ariel-data-challenge-2024/train_labels.csv',
-        delimiter=',',
-        skiprows=1)
-    targets = train_solution[:, 1:]
-    newtarget = targets / full_whitelight_s_train[:, np.newaxis]
-    targets_tensor = torch.tensor(newtarget).float()
-    target_min = targets_tensor.min()
-    target_max = targets_tensor.max()
-    full_targets_normalized = (targets_tensor - target_min) / (target_max -
-                                                               target_min)
-
-    # 使用 K-means 聚类
-    n_clusters = 16  # 根据需要调整聚类数量
-    kmeans = KMeans(n_clusters=n_clusters,
-                    random_state=42).fit(full_targets_normalized)
-    cluster_labels = kmeans.labels_
-
-    np.random.seed(21)
-    # 初始化存储采样的索引列表
-    sampled_indices = []
-    samples_per_cluster = 640 // n_clusters  # 每个聚类中目标样本数量
-
-    for cluster in np.unique(cluster_labels):
-        cluster_indices = np.where(cluster_labels == cluster)[0]
-
-        # 如果样本数量不足，则进行上采样
-        if len(cluster_indices) < samples_per_cluster:
-            temp_samples = cluster_indices.tolist()
-            sampled_indices.extend(temp_samples)
-            remaining_samples = samples_per_cluster - len(cluster_indices)
-            sampled_indices.extend(
-                np.random.choice(cluster_indices,
-                                 remaining_samples,
-                                 replace=True))
-        else:
-            # 样本数量充足时正常采样
-            sampled_indices.extend(
-                np.random.choice(cluster_indices,
-                                 samples_per_cluster,
-                                 replace=False))
-
-    predictions_spectra = full_predictions_spectra[sampled_indices]
-    min_values = predictions_spectra.min(axis=(1, 2), keepdims=True)
-    max_values = predictions_spectra.max(axis=(1, 2), keepdims=True)
-    normalized_spectra = (predictions_spectra - min_values) / (max_values -
-                                                               min_values)
-    light_alpha_train = full_light_alpha_train[sampled_indices]
-    targets_normalized = full_targets_normalized[sampled_indices]
-
-    whitelight_s_train = full_whitelight_s_train[sampled_indices]
-    whitelight_s_train_expanded = np.expand_dims(whitelight_s_train * 100,
-                                                 axis=1)
-    combined_array = np.concatenate(
-        (light_alpha_train, whitelight_s_train_expanded), axis=1)
-    combined_array.shape
-
-    light_alpha_train = torch.tensor(combined_array).float()
-    data_train_reshaped = torch.tensor(normalized_spectra).float()
-
-    # 初始化模型、损失函数和优化器
-    model = ModelClass().cuda()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    best_val_loss = float('inf')
-    """新模型修改模型名称"""
-    try:
-        model, optimizer, best_val_loss, target_min, target_max = load_best_model(
-            model, optimizer, path='best_model_' + modelname + '.pth')
-    except:
-        print("未找到最佳模型，开始训练。")
+    full_predictions_spectra, full_whitelight_s_train, full_light_alpha_train, full_targets_normalized, target_min, target_max = load_features_and_targets(
+    )
+    "采样"
+    sampled_indices = sample_data(full_targets_normalized)
+    "输入数据处理"
+    data_train_reshaped, light_alpha_train, targets_normalized = process_inputdata(
+        full_predictions_spectra, full_whitelight_s_train,
+        full_light_alpha_train, full_targets_normalized, sampled_indices)
+    "初始化模型、损失函数和优化器"
+    model, optimizer, best_val_loss, target_min, target_max = process_model(
+        ModelClass, modelname)
     "训练"
     train_func_2input_2out(data_train_reshaped,
                            light_alpha_train,
