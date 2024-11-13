@@ -7,19 +7,22 @@ import torch
 
 
 def normalize_and_reshape_chunks(dataset_test, planet_num):
-
     # 创建内存映射文件用于存储归一化和重塑后的数据
+    # Create memory-mapped file to store normalized and reshaped data
     normalized_reshaped_test = torch.empty((planet_num, 283, 187, 32),
                                            dtype=torch.float32)
 
     for i in range(planet_num):
         data_test_tensor = torch.tensor(dataset_test[i]).float()
         # 先在第一维上计算最小值和最大值
+        # First, calculate the min and max values along the first dimension
         data_min = data_test_tensor.min(dim=0, keepdim=True)[0]
         data_max = data_test_tensor.max(dim=0, keepdim=True)[0]
         data_test_normalized = (data_test_tensor - data_min) / (data_max -
                                                                 data_min)
         del data_test_tensor
+        # 将数据重塑为适合的维度
+        # Reshape data to desired dimensions
         data_test_reshaped = data_test_normalized.permute(1, 0, 2)
         del data_test_normalized
         normalized_reshaped_test[i] = data_test_reshaped
@@ -29,15 +32,20 @@ def normalize_and_reshape_chunks(dataset_test, planet_num):
 
 
 def load_data_chunked(file, nb_files, delete=True):
+    # 分批加载数据文件
+    # Load data files in chunks
     for i in range(nb_files):
         file_path = file + '_{}.npy'.format(i)
         data = np.load(file_path)
         yield data
         if delete:
             os.remove(file_path)  # 删除文件
+            # Delete file after loading
 
 
 def del_files(file, nb_files):
+    # 删除指定数量的文件
+    # Delete specified number of files
     for i in range(nb_files):
         file_path = file + '_{}.npy'.format(i)
         if os.path.exists(file_path):
@@ -50,6 +58,7 @@ def process_and_memmap_chunks(path_out,
                               output_file,
                               delete=True):
     # 创建内存映射文件
+    # Create a memory-mapped file
     dataset_test = np.memmap(output_file,
                              dtype='float32',
                              mode='w+',
@@ -57,12 +66,19 @@ def process_and_memmap_chunks(path_out,
 
     current_index = 0
 
+    # 按批次处理数据
+    # Process data in chunks
     for test_signal_FGS_chunk, test_signal_AIRS_chunk in zip(
             load_data_chunked(path_out + 'FGS1_test', nb_files, delete),
             load_data_chunked(path_out + 'AIRS_clean_test', nb_files, delete)):
 
+        # 将 FGS 数据按列求和
+        # Sum FGS data along columns
         test_FGS_column_chunk = test_signal_FGS_chunk.sum(axis=2)
         del test_signal_FGS_chunk
+
+        # 将 FGS 数据和 AIRS 数据组合在一起
+        # Combine FGS and AIRS data together
         combined_chunk = np.concatenate([
             test_FGS_column_chunk[:, :, np.newaxis, :], test_signal_AIRS_chunk
         ],
@@ -70,6 +86,7 @@ def process_and_memmap_chunks(path_out,
         del test_FGS_column_chunk, test_signal_AIRS_chunk
 
         # 将处理后的数据写入内存映射文件
+        # Write processed data into memory-mapped file
         dataset_test[current_index:current_index +
                      combined_chunk.shape[0]] = combined_chunk
         current_index += combined_chunk.shape[0]
